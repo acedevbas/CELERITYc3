@@ -6,6 +6,8 @@
 const { z } = require('zod');
 const HyUser = require('../../models/hyUserModel');
 const HyNode = require('../../models/hyNodeModel');
+const UserDevice = require('../../models/userDeviceModel');
+const hwidDeviceService = require('../../services/hwidDeviceService');
 const cryptoService = require('../../services/cryptoService');
 const cache = require('../../services/cacheService');
 const logger = require('../../utils/logger');
@@ -46,7 +48,15 @@ const manageUserSchema = z.object({
         expireAt: z.string().datetime().nullable().optional(),
         maxDevices: z.number().int().min(0).optional().describe('0 = unlimited'),
         enabled: z.boolean().optional(),
+        hwidMode: z.enum(['inherit', 'off', 'strict']).optional(),
+        hwidEnforceFrom: z.string().nullable().optional(),
     }).optional(),
+});
+
+const manageHwidDevicesSchema = z.object({
+    action: z.enum(['list', 'unlink', 'unlink_all']),
+    userId: z.string(),
+    hwid: z.string().optional(),
 });
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
@@ -119,6 +129,13 @@ async function manageUser(args, emit) {
             if (existing) return { error: 'User already exists', code: 409, user: existing };
 
             const password = cryptoService.generatePassword(userId);
+            const hm = data.hwidMode;
+            const hwidMode = ['inherit', 'off', 'strict'].includes(String(hm)) ? hm : 'inherit';
+            let hwidEnforceFrom = null;
+            if (data.hwidEnforceFrom) {
+                const d = new Date(data.hwidEnforceFrom);
+                if (!Number.isNaN(d.getTime())) hwidEnforceFrom = d;
+            }
             const user = new HyUser({
                 userId,
                 username: data.username || '',
@@ -128,6 +145,8 @@ async function manageUser(args, emit) {
                 trafficLimit: data.trafficLimit || 0,
                 expireAt: data.expireAt || null,
                 maxDevices: data.maxDevices || 0,
+                hwidMode,
+                hwidEnforceFrom,
                 nodes: [],
             });
             await user.save();
@@ -150,12 +169,30 @@ async function manageUser(args, emit) {
             if (data.expireAt !== undefined) updates.expireAt = data.expireAt;
             if (data.groups !== undefined) updates.groups = data.groups;
             if (data.maxDevices !== undefined) updates.maxDevices = data.maxDevices;
+            if (data.hwidMode !== undefined) {
+                const hm = String(data.hwidMode);
+                if (['inherit', 'off', 'strict'].includes(hm)) updates.hwidMode = hm;
+            }
+            if (data.hwidEnforceFrom !== undefined) {
+                updates.hwidEnforceFrom = data.hwidEnforceFrom
+                    ? new Date(data.hwidEnforceFrom)
+                    : null;
+            }
 
             const updated = await HyUser.findOneAndUpdate({ userId }, { $set: updates }, { new: true })
                 .populate('nodes', 'name ip')
                 .populate('groups', 'name color');
 
             await invalidateUserCache(userId, user.subscriptionToken);
+            const limitTouched = updates.maxDevices !== undefined
+                && updates.maxDevices !== user.maxDevices;
+            const modeRelaxed = updates.hwidMode !== undefined
+                && updates.hwidMode !== user.hwidMode
+                && (updates.hwidMode === 'off' || updates.hwidMode === 'inherit');
+            const enforceDelayed = Object.prototype.hasOwnProperty.call(updates, 'hwidEnforceFrom');
+            if (limitTouched || modeRelaxed || enforceDelayed) {
+                webhook.clearDeviceLimitNotified(userId);
+            }
             logger.info(`[MCP] Updated user ${userId}`);
             webhook.emit(webhook.EVENTS.USER_UPDATED, { userId, updates });
             return { success: true, user: updated };
@@ -165,8 +202,10 @@ async function manageUser(args, emit) {
             if (!userId) throw new Error('userId is required for delete');
             const user = await HyUser.findOneAndDelete({ userId });
             if (!user) return { error: `User '${userId}' not found`, code: 404 };
+            await UserDevice.deleteMany({ userId });
             getSyncService().removeUserFromAllXrayNodes(user.toObject()).catch(() => {});
             await invalidateUserCache(userId, user.subscriptionToken);
+            webhook.clearDeviceLimitNotified(userId);
             logger.info(`[MCP] Deleted user ${userId}`);
             webhook.emit(webhook.EVENTS.USER_DELETED, { userId });
             return { success: true, message: `User '${userId}' deleted` };
@@ -212,11 +251,51 @@ async function manageUser(args, emit) {
     }
 }
 
+/**
+ * MCP: list / unlink HWID devices
+ */
+async function manageHwidDevices(args) {
+    const parsed = manageHwidDevicesSchema.parse(args);
+    const { action, userId, hwid } = parsed;
+
+    const user = await HyUser.findOne({ userId }).select('userId subscriptionToken').lean();
+    if (!user) return { error: `User '${userId}' not found`, code: 404 };
+
+    switch (action) {
+        case 'list': {
+            const devices = await hwidDeviceService.listDevices(userId);
+            const full = await HyUser.findOne({ userId }).populate('groups', 'maxDevices').lean();
+            const limit = hwidDeviceService.effectiveDeviceLimit(full);
+            return { userId, count: devices.length, limit, devices };
+        }
+        case 'unlink': {
+            if (!hwid) throw new Error('hwid is required for unlink');
+            const r = await UserDevice.deleteOne({ userId, hwid });
+            if (r.deletedCount === 0) return { error: 'Device not found', code: 404 };
+            await hwidDeviceService.invalidateCountCache(userId);
+            await invalidateUserCache(userId, user.subscriptionToken);
+            webhook.clearDeviceLimitNotified(userId);
+            return { success: true, userId, hwid };
+        }
+        case 'unlink_all': {
+            await UserDevice.deleteMany({ userId });
+            await hwidDeviceService.invalidateCountCache(userId);
+            await invalidateUserCache(userId, user.subscriptionToken);
+            webhook.clearDeviceLimitNotified(userId);
+            return { success: true, userId, message: 'All HWID devices removed' };
+        }
+        default:
+            throw new Error(`Unknown action: ${action}`);
+    }
+}
+
 module.exports = {
     queryUsers,
     manageUser,
+    manageHwidDevices,
     schemas: {
         queryUsers: queryUsersSchema,
         manageUser: manageUserSchema,
+        manageHwidDevices: manageHwidDevicesSchema,
     },
 };

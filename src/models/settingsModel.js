@@ -96,6 +96,18 @@ const settingsSchema = new mongoose.Schema({
             pingType:     { type: String, enum: ['', 'proxy', 'proxy-head', 'tcp', 'icmp'], default: '' },
             pingUrl:      { type: String, default: '' },
             colorProfile: { type: String, default: '' },
+            hwid: {
+                mode: { type: String, enum: ['off', 'permissive', 'strict'], default: 'off' },
+                inactiveDeviceCleanupDays: { type: Number, default: 90 },
+                upsertRateLimitPerMinute: { type: Number, default: 60 },
+                // HAPP popup text shown when device limit is reached (HAPP only).
+                maxDevicesAnnounce: { type: String, default: '' },
+                // Fake server name shown to non-HWID clients in strict mode
+                // (Hiddify, Clash, Shadowrocket, sing-box, v2rayNG without x-hwid, etc.).
+                notSupportedRemark: { type: String, default: '' },
+                // Fake server name shown to any client when its device limit is reached.
+                maxDevicesRemark: { type: String, default: '' },
+            },
         },
     },
 

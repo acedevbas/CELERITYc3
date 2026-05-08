@@ -6,72 +6,62 @@
 <% } %>
 
 <style>
-.settings-tabs {
-    display: flex;
-    gap: 0;
-    border-bottom: 2px solid var(--border);
-    margin-bottom: 1.5rem;
-    overflow-x: auto;
-}
-.settings-tab {
-    padding: 0.75rem 1.25rem;
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    white-space: nowrap;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -2px;
-    transition: all 0.2s;
-}
-.settings-tab:hover {
-    color: var(--text-primary);
-    background: var(--bg-tertiary);
-}
-.settings-tab.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-}
-.tab-content {
-    display: none;
-}
+/* Page-local tweaks: tab-content visibility only.
+ * All component styles live in style.css under "Glass surfaces, settings page".
+ */
+.tab-content { display: none; }
 .tab-content.active {
     display: block;
-}
-.settings-section {
-    margin-bottom: 1.5rem;
-}
-.settings-section:last-child {
-    margin-bottom: 0;
-}
-.section-title {
-    font-size: 15px;
-    font-weight: 600;
-    margin-bottom: 1rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid var(--border);
+    animation: fadeUp 0.28s ease-out both;
 }
 </style>
 
-<div class="settings-tabs">
-    <button class="settings-tab active" data-tab="system"><i class="ti ti-settings"></i> <%= t('settings.tabSystem') || 'Система' %></button>
-    <button class="settings-tab" data-tab="subscription"><i class="ti ti-link"></i> <%= t('settings.tabSubscription') || 'Подписка' %></button>
-    <button class="settings-tab" data-tab="security"><i class="ti ti-lock"></i> <%= t('settings.tabSecurity') || 'Безопасность' %></button>
-    <button class="settings-tab" data-tab="backup"><i class="ti ti-device-floppy"></i> <%= t('settings.tabBackup') || 'Бэкапы' %></button>
-    <button class="settings-tab" data-tab="maintenance"><i class="ti ti-tool"></i> <%= t('settings.tabMaintenance') || 'Обслуживание' %></button>
+<div class="settings-page">
+    <%
+        const settingsTabs = [
+            { id: 'system',       icon: 'ti-settings',        label: t('settings.tabSystem')       || 'Система',       desc: t('settings.tabSystemDesc')       || 'Производительность, кэш, лимиты и SSH-пул.' },
+            { id: 'subscription', icon: 'ti-link',            label: t('settings.tabSubscription') || 'Подписка',      desc: t('settings.tabSubscriptionDesc') || 'Внешний вид, кнопки и поведение клиентских приложений.' },
+            { id: 'security',     icon: 'ti-shield-lock',     label: t('settings.tabSecurity')     || 'Безопасность',  desc: t('settings.tabSecurityDesc')     || 'Администратор, 2FA, API-ключи, MCP и вебхуки.' },
+            { id: 'backup',       icon: 'ti-database-export', label: t('settings.tabBackup')       || 'Бэкапы',        desc: t('settings.tabBackupDesc')       || 'Локальные и S3 бэкапы, расписание, восстановление.' },
+            { id: 'maintenance',  icon: 'ti-tool',            label: t('settings.tabMaintenance')  || 'Обслуживание',  desc: t('settings.tabMaintenanceDesc')  || 'Обслуживание, кэш, сброс счётчиков и опасные операции.' },
+        ];
+    %>
+
+    <div class="settings-tabbar">
+        <div class="settings-tabs" role="tablist">
+            <% settingsTabs.forEach((tab, idx) => { %>
+            <button class="settings-tab <%= idx === 0 ? 'active' : '' %>"
+                    data-tab="<%= tab.id %>"
+                    data-desc="<%= tab.desc %>"
+                    data-label="<%= tab.label %>"
+                    data-icon="<%= tab.icon %>"
+                    role="tab"
+                    aria-selected="<%= idx === 0 ? 'true' : 'false' %>">
+                <i class="ti <%= tab.icon %>"></i>
+                <span><%= tab.label %></span>
+            </button>
+            <% }) %>
+        </div>
+    </div>
+
+    <div class="settings-tab-caption" id="settingsTabCaption">
+        <div class="stc-icon"><i class="ti <%= settingsTabs[0].icon %>" id="stcIcon"></i></div>
+        <div class="stc-text">
+            <h2 class="stc-title" id="stcTitle"><%= settingsTabs[0].label %></h2>
+            <p class="stc-desc" id="stcDesc"><%= settingsTabs[0].desc %></p>
+        </div>
+    </div>
+
+    <%- include('partials/settings/system') %>
+
+    <%- include('partials/settings/subscription') %>
+
+    <%- include('partials/settings/security') %>
+
+    <%- include('partials/settings/backup') %>
+
+    <%- include('partials/settings/maintenance') %>
 </div>
-
-<%- include('partials/settings/system') %>
-
-<%- include('partials/settings/subscription') %>
-
-<%- include('partials/settings/security') %>
-
-<%- include('partials/settings/backup') %>
-
-<%- include('partials/settings/maintenance') %>
 
 <div id="toast" class="toast"></div>
 
@@ -108,28 +98,51 @@ const i18n = {
 };
 
 // ==================== TABS ====================
-document.querySelectorAll('.settings-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-        // Remove active from all
-        document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        
-        // Add active to clicked
-        tab.classList.add('active');
-        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-        
-        // Save to localStorage
-        localStorage.setItem('settings-tab', tab.dataset.tab);
-    });
-});
+(function () {
+    const captionIcon  = document.getElementById('stcIcon');
+    const captionTitle = document.getElementById('stcTitle');
+    const captionDesc  = document.getElementById('stcDesc');
 
-// Restore tab from query string or localStorage
-const queryTab = new URLSearchParams(window.location.search).get('tab');
-const savedTab = queryTab || localStorage.getItem('settings-tab');
-if (savedTab) {
-    const tab = document.querySelector(`.settings-tab[data-tab="${savedTab}"]`);
-    if (tab) tab.click();
-}
+    function activateTab(tab, opts) {
+        if (!tab) return;
+        const persist = !opts || opts.persist !== false;
+
+        document.querySelectorAll('.settings-tab').forEach(t => {
+            t.classList.remove('active');
+            t.setAttribute('aria-selected', 'false');
+        });
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+        tab.classList.add('active');
+        tab.setAttribute('aria-selected', 'true');
+
+        const pane = document.getElementById('tab-' + tab.dataset.tab);
+        if (pane) pane.classList.add('active');
+
+        if (captionIcon)  captionIcon.className  = 'ti ' + (tab.dataset.icon || '');
+        if (captionTitle) captionTitle.textContent = tab.dataset.label || '';
+        if (captionDesc)  captionDesc.textContent  = tab.dataset.desc  || '';
+
+        if (persist) localStorage.setItem('settings-tab', tab.dataset.tab);
+
+        // Smooth-scroll into the active tab pill (mobile horizontal scroll)
+        try {
+            tab.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        } catch (_) {}
+    }
+
+    document.querySelectorAll('.settings-tab').forEach(tab => {
+        tab.addEventListener('click', () => activateTab(tab));
+    });
+
+    // Restore tab from query string or localStorage (no scroll-jump on first paint)
+    const queryTab = new URLSearchParams(window.location.search).get('tab');
+    const savedTab = queryTab || localStorage.getItem('settings-tab');
+    if (savedTab) {
+        const tab = document.querySelector(`.settings-tab[data-tab="${savedTab}"]`);
+        if (tab && !tab.classList.contains('active')) activateTab(tab, { persist: false });
+    }
+})();
 
 // ==================== BACKUP ====================
 document.getElementById('backupEnabled')?.addEventListener('change', function() {

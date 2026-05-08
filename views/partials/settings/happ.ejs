@@ -42,6 +42,107 @@
                 <small class="hint"><%= t('settings.happAnnounceHint') %></small>
             </div>
 
+            <%# ======== HWID device limit (always visible — important feature) ======== %>
+            <hr style="margin: 1.25rem 0; border-color: var(--border);">
+            <h4 style="margin: 0 0 0.75rem; font-size: 15px;">
+                <i class="ti ti-fingerprint"></i> <%= t('settings.happHwidTitle') %>
+            </h4>
+            <p class="hint" style="margin: 0 0 0.75rem;"><%= t('settings.happHwidIntro') %></p>
+
+            <div class="settings-grid" style="margin-bottom: 1rem;">
+                <div class="form-group">
+                    <label><%= t('settings.happHwidMode') %></label>
+                    <select name="subscription.happ.hwid.mode" id="happHwidMode">
+                        <option value="off"        <%= (settings?.subscription?.happ?.hwid?.mode || 'off') === 'off'        ? 'selected' : '' %>><%= t('settings.happHwidModeOff') %></option>
+                        <option value="permissive" <%= settings?.subscription?.happ?.hwid?.mode === 'permissive' ? 'selected' : '' %>><%= t('settings.happHwidModePermissive') %></option>
+                        <option value="strict"     <%= settings?.subscription?.happ?.hwid?.mode === 'strict'     ? 'selected' : '' %>><%= t('settings.happHwidModeStrict') %></option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label><%= t('settings.happHwidCleanupDays') %></label>
+                    <input type="number" name="subscription.happ.hwid.inactiveDeviceCleanupDays" min="7" max="3650"
+                           value="<%= settings?.subscription?.happ?.hwid?.inactiveDeviceCleanupDays ?? 90 %>">
+                </div>
+                <div class="form-group">
+                    <label><%= t('settings.happHwidUpsertRate') %></label>
+                    <input type="number" name="subscription.happ.hwid.upsertRateLimitPerMinute" min="1" max="600"
+                           value="<%= settings?.subscription?.happ?.hwid?.upsertRateLimitPerMinute ?? 60 %>">
+                    <small class="hint"><%= t('settings.happHwidUpsertRateHint') %></small>
+                </div>
+            </div>
+
+            <%# Per-mode explainer. Only the box matching the currently selected mode is shown. %>
+            <div class="hwid-mode-explainer" data-hwid-mode="off"
+                 style="<%= (settings?.subscription?.happ?.hwid?.mode || 'off') === 'off' ? '' : 'display:none' %>">
+                <h5><%= t('settings.happHwidModeOff') %></h5>
+                <p><%= t('settings.happHwidExplainOff') %></p>
+            </div>
+            <div class="hwid-mode-explainer" data-hwid-mode="permissive"
+                 style="<%= settings?.subscription?.happ?.hwid?.mode === 'permissive' ? '' : 'display:none' %>">
+                <h5><%= t('settings.happHwidModePermissive') %></h5>
+                <p><%= t('settings.happHwidExplainPermissive') %></p>
+                <p class="hint" style="margin: 6px 0 0;"><%= t('settings.happHwidExplainSoftBlock') %></p>
+            </div>
+            <div class="hwid-mode-explainer" data-hwid-mode="strict"
+                 style="<%= settings?.subscription?.happ?.hwid?.mode === 'strict' ? '' : 'display:none' %>">
+                <h5><%= t('settings.happHwidModeStrict') %></h5>
+                <p><%= t('settings.happHwidExplainStrict') %></p>
+                <p class="hint" style="margin: 6px 0 0;"><%= t('settings.happHwidExplainSoftBlock') %></p>
+            </div>
+
+            <%# Soft-block remarks (used in strict mode and on limit-reached for any client). %>
+            <%# Each non-empty line becomes a separate fake server in the client UI. %>
+            <div class="settings-grid" style="margin-top: 1rem;">
+                <div class="form-group">
+                    <label><%= t('settings.happHwidNotSupportedRemark') %></label>
+                    <textarea name="subscription.happ.hwid.notSupportedRemark"
+                              maxlength="1500" rows="4"
+                              style="width:100%; font-size:13px;"
+                              placeholder="Install HAPP from happ-proxy.com&#10;Your client does not support HWID&#10;Then refresh this subscription"><%= settings?.subscription?.happ?.hwid?.notSupportedRemark || '' %></textarea>
+                    <small class="hint"><%= t('settings.happHwidNotSupportedRemarkHint') %></small>
+                </div>
+                <div class="form-group">
+                    <label><%= t('settings.happHwidMaxDevicesRemark') %></label>
+                    <textarea name="subscription.happ.hwid.maxDevicesRemark"
+                              maxlength="1500" rows="4"
+                              style="width:100%; font-size:13px;"
+                              placeholder="Device limit reached&#10;Remove unused devices in panel&#10;Or contact support"><%= settings?.subscription?.happ?.hwid?.maxDevicesRemark || '' %></textarea>
+                    <small class="hint"><%= t('settings.happHwidMaxDevicesRemarkHint') %></small>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 1rem; margin-bottom: 1rem;">
+                <label><%= t('settings.happHwidAnnounce') %></label>
+                <textarea name="subscription.happ.hwid.maxDevicesAnnounce" id="happHwidAnnounce" maxlength="300" rows="2"
+                          style="width:100%;"><%= settings?.subscription?.happ?.hwid?.maxDevicesAnnounce || '' %></textarea>
+                <small class="hint"><%= t('settings.happHwidAnnounceHint') %></small>
+            </div>
+            <% if (typeof topHwidUsers !== 'undefined' && topHwidUsers && topHwidUsers.length > 0) { %>
+            <div style="margin-top: 1rem; overflow-x: auto;">
+                <h5 style="margin: 0 0 0.5rem; font-size: 14px;"><%= t('settings.happHwidTopUsers') %></h5>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th><%= t('users.userId') %></th>
+                            <th><%= t('users.username') %></th>
+                            <th><%= t('settings.happHwidDeviceCount') %></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% topHwidUsers.forEach((row, i) => { %>
+                        <tr>
+                            <td><%= i + 1 %></td>
+                            <td><code><%= row.userId %></code></td>
+                            <td><%= row.username || '—' %></td>
+                            <td><%= row.count %></td>
+                        </tr>
+                        <% }); %>
+                    </tbody>
+                </table>
+            </div>
+            <% } %>
+
             <hr style="margin: 1.25rem 0; border-color: var(--border);">
 
             <%# ======== Advanced collapsible (requires Provider ID) ======== %>
@@ -130,8 +231,8 @@
                 </div><%# /happAdvancedBody %>
             </div>
 
-            <div style="display:flex; justify-content:flex-end; margin-top:1.25rem;">
-                <button type="submit" class="btn btn-primary" style="padding:0.75rem 2rem;">
+            <div class="settings-save-bar">
+                <button type="submit" class="btn btn-primary">
                     <i class="ti ti-device-floppy"></i> <%= t('common.save') %>
                 </button>
             </div>
@@ -164,10 +265,31 @@
 .happ-toggle-item {
     align-items: flex-start;
     padding: 12px 14px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-sm);
-    background: var(--bg-secondary);
+    background: rgba(255, 255, 255, 0.025);
 }
+.hwid-mode-explainer {
+    margin: 0.25rem 0 0;
+    padding: 10px 12px;
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+    background: rgba(99, 102, 241, 0.06);
+    border-top: 1px solid var(--glass-border);
+    border-right: 1px solid var(--glass-border);
+    border-bottom: 1px solid var(--glass-border);
+    font-size: 13px;
+    line-height: 1.5;
+}
+.hwid-mode-explainer h5 {
+    margin: 0 0 4px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+.hwid-mode-explainer p { margin: 0; }
+.hwid-mode-explainer p + p { margin-top: 4px; }
 </style>
 
 <script>
@@ -232,6 +354,21 @@
     }
 
     setAdvancedOpen(isAdvancedOpen());
+
+    // HWID mode explainer: show only the box matching the currently selected mode.
+    var hwidModeSel = document.getElementById('happHwidMode');
+    var hwidExplainerBoxes = document.querySelectorAll('.hwid-mode-explainer[data-hwid-mode]');
+    function syncHwidExplainer() {
+        if (!hwidModeSel) return;
+        var current = hwidModeSel.value;
+        hwidExplainerBoxes.forEach(function(box) {
+            box.style.display = box.getAttribute('data-hwid-mode') === current ? '' : 'none';
+        });
+    }
+    if (hwidModeSel) {
+        hwidModeSel.addEventListener('change', syncHwidExplainer);
+        syncHwidExplainer();
+    }
 
     var announceEl = document.getElementById('happAnnounce');
     if (announceEl) happAnnounceCount(announceEl);

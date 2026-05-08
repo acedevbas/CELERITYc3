@@ -67,7 +67,7 @@
                                     <span><%= t('groups.isActive') %></span>
                                 </label>
                                 <div class="btn-group">
-                                    <button type="submit" class="btn btn-sm btn-secondary"><%= t('groups.save') %></button>
+                                    <button type="submit" class="btn btn-sm btn-primary"><i class="ti ti-device-floppy"></i> <%= t('groups.save') %></button>
                                 </div>
                             </div>
                         </form>
@@ -96,7 +96,7 @@
     width: 48px;
     height: 38px;
     padding: 2px;
-    border-radius: 6px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
 }
 @media (max-width: 768px) {
@@ -126,11 +126,14 @@
     gap: 1rem;
 }
 .group-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
     padding: 1rem;
     position: relative;
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+    box-shadow: var(--glass-shadow);
 }
 .group-header {
     display: flex;
@@ -156,7 +159,7 @@
     height: 32px;
     padding: 0;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
 }
 .group-stats {
@@ -173,11 +176,16 @@
 }
 .group-description, .group-devices {
     padding: 0.5rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-xs);
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
     color: var(--text-primary);
     font-size: 0.9rem;
+}
+.group-description:focus, .group-devices:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.06);
 }
 .group-devices {
     width: 80px;

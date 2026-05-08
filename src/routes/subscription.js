@@ -17,6 +17,9 @@ const cache = require('../services/cacheService');
 const logger = require('../utils/logger');
 const { getNodesByGroups, getSettings, parseDurationSeconds, normalizeHopInterval } = require('../utils/helpers');
 const uaStats = require('../services/uaStatsService');
+const { extractHwidHeaders } = require('../utils/hwidHeaders');
+const hwidDeviceService = require('../services/hwidDeviceService');
+const webhookService = require('../services/webhookService');
 
 // ==================== HELPERS ====================
 
@@ -49,7 +52,7 @@ async function getUserByToken(token) {
         ]
     })
         .populate('nodes', 'active name type status onlineUsers maxOnlineUsers rankingCoefficient domain sni ip port portRange hopInterval portConfigs obfs flag xray')
-        .populate('groups', '_id name subscriptionTitle');
+        .populate('groups', '_id name subscriptionTitle maxDevices');
     
     return user;
 }
@@ -1278,27 +1281,33 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     const pageTitle = sub.pageTitle || 'Подключение';
 
     const logoHtml = logoUrl
-        ? `<img src="${logoUrl}" style="height:48px; border-radius:10px; object-fit:contain;" onerror="this.style.display='none'">`
-        : '<i class="ti ti-rocket"></i>';
+        ? `<img src="${logoUrl}" class="brand-logo" onerror="this.style.display='none'">`
+        : '<i class="ti ti-rocket brand-icon"></i>';
 
-    // QR code for subscription link (cached)
-    let qrDataUrl = await cache.getQR(baseUrl);
+    // QR code for subscription link (cached). White modules on PURE black background:
+    // CSS mix-blend-mode: screen makes pure-black pixels (#000000) fully transparent,
+    // so the QR seamlessly blends into any surface. Cache key carries a style
+    // version (`v3`) so legacy QRs with the old `#141414` background are regenerated.
+    const QR_CACHE_KEY = `v3:${baseUrl}`;
+    let qrDataUrl = await cache.getQR(QR_CACHE_KEY);
     if (!qrDataUrl) {
         try {
-            qrDataUrl = await QRCode.toDataURL(baseUrl, { width: 180, margin: 1, color: { dark: '#ffffff', light: '#141414' } });
-            await cache.setQR(baseUrl, qrDataUrl);
+            qrDataUrl = await QRCode.toDataURL(baseUrl, {
+                width: 240,
+                margin: 1,
+                color: { dark: '#ffffff', light: '#000000' },
+            });
+            await cache.setQR(QR_CACHE_KEY, qrDataUrl);
         } catch (e) {
             logger.warn(`[Sub] QR generation failed: ${e.message}`);
         }
     }
 
     const qrSectionHtml = qrDataUrl
-        ? `<div class="section" style="text-align:center;">
-            <h2 style="justify-content:center;"><i class="ti ti-qrcode"></i> QR-КОД</h2>
-            <div style="display:inline-block; background:#141414; padding:12px; border-radius:12px; margin-bottom:8px;">
-                <img src="${qrDataUrl}" alt="QR" style="width:160px; height:160px; border-radius:8px; display:block;">
-            </div>
-            <div style="font-size:12px; color:var(--muted);">Отсканируйте для импорта подписки в приложение</div>
+        ? `<div class="section section-center qr-section">
+            <h2><i class="ti ti-qrcode"></i> QR-КОД</h2>
+            <img src="${qrDataUrl}" alt="QR" class="qr-image">
+            <div class="qr-hint">Отсканируйте для импорта подписки в приложение</div>
            </div>`
         : '';
 
@@ -1319,7 +1328,8 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
 
     const buttons = (sub.buttons || []).filter(b => b.label && b.url);
     const buttonsHtml = buttons.length > 0
-        ? `<div class="section" style="padding:12px;">
+        ? `<div class="section section-buttons">
+            <h2><i class="ti ti-apps"></i> ПРИЛОЖЕНИЯ</h2>
             <div class="btn-grid">
                 ${buttons.map(b => {
                     const href = resolveButtonUrl(b.url, baseUrl);
@@ -1327,7 +1337,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                     const iconClass = (b.icon || '').trim().replace(/[^a-zA-Z0-9-]/g, '') || 'ti-external-link';
                     const safeLabel = escAttr(b.label);
                     return `<a href="${escAttr(href)}" target="_blank" rel="noopener noreferrer" class="app-btn">
-                        <i class="ti ${iconClass}" style="font-size:18px; color:var(--accent); flex-shrink:0;"></i>
+                        <i class="ti ${iconClass}"></i>
                         <span>${safeLabel}</span>
                     </a>`;
                 }).filter(Boolean).join('')}
@@ -1339,58 +1349,419 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0a0c">
     <title>${pageTitle}</title>
     <style>
-        :root { --bg: #0a0a0a; --card: #141414; --border: #252525; --text: #fff; --muted: #888; --accent: #3b82f6; --success: #22c55e; }
+        :root {
+            --bg-base: #0a0a0c;
+            --text: #f4f4f5;
+            --text-muted: #a1a1aa;
+            --text-dim: #71717a;
+            --accent: #6366f1;
+            --accent-2: #7c3aed;
+            --success: #22c55e;
+            --glass-bg: rgba(24, 24, 27, 0.62);
+            --glass-bg-strong: rgba(24, 24, 27, 0.78);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-border-strong: rgba(255, 255, 255, 0.14);
+            --glass-blur: saturate(180%) blur(22px);
+            --glass-blur-sm: saturate(160%) blur(14px);
+            --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.55);
+            --glass-shadow-lg: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 28px 64px -24px rgba(0, 0, 0, 0.7);
+            --radius: 16px;
+            --radius-sm: 10px;
+            --radius-xs: 6px;
+            --transition: 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 16px; }
+        html, body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+            background: var(--bg-base);
+            background-image:
+                radial-gradient(1200px 760px at 8% -12%, rgba(99, 102, 241, 0.32), transparent 60%),
+                radial-gradient(1000px 680px at 112% 6%, rgba(168, 85, 247, 0.26), transparent 55%),
+                radial-gradient(820px 580px at 50% 110%, rgba(34, 197, 94, 0.10), transparent 60%);
+            background-attachment: fixed;
+            color: var(--text);
+            min-height: 100vh;
+            padding: 22px 14px calc(34px + env(safe-area-inset-bottom));
+            line-height: 1.5;
+        }
         .container { max-width: 600px; margin: 0 auto; }
-        .header { text-align: center; padding: 32px 16px; background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%); border-radius: 16px; margin-bottom: 16px; }
-        .header h1 { font-size: 24px; margin-bottom: 4px; }
-        .header p { color: var(--muted); font-size: 14px; }
-        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
-        .stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; text-align: center; }
-        .stat-value { font-size: 18px; font-weight: 600; color: var(--accent); }
-        .stat-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
-        .section { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
-        .section h2 { font-size: 14px; margin-bottom: 12px; color: var(--muted); }
-        .location { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; overflow: hidden; }
-        .location-header { display: flex; align-items: center; gap: 10px; padding: 12px; cursor: pointer; background: var(--bg); }
-        .location-header:hover { background: #1a1a1a; }
-        .location-flag { font-size: 24px; }
-        .location-name { flex: 1; font-weight: 500; }
-        .location-arrow { color: var(--muted); transition: transform 0.2s; display: inline-flex; }
-        .location.open .location-arrow { transform: rotate(180deg); }
-        .location-configs { display: none; border-top: 1px solid var(--border); }
-        .location.open .location-configs { display: block; }
-        .config { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
-        .config:last-child { border-bottom: none; }
-        .config-name { font-size: 13px; }
-        .copy-btn { padding: 6px 12px; background: var(--accent); border: none; border-radius: 6px; color: #fff; font-size: 12px; cursor: pointer; }
-        .copy-btn:active { transform: scale(0.95); }
-        .copy-btn.success { background: var(--success); }
-        .sub-box { display: flex; gap: 8px; }
-        .sub-box input { flex: 1; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 12px; min-width: 0; }
-        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--success); color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 14px; transition: transform 0.3s; display: flex; align-items: center; gap: 8px; }
-        .toast.show { transform: translateX(-50%) translateY(0); }
-        .header h1 { display: flex; align-items: center; justify-content: center; gap: 8px; }
-        .section h2 { display: flex; align-items: center; gap: 8px; }
-        .copy-btn { display: inline-flex; align-items: center; gap: 6px; }
+
+        /* === Animations === */
+        @keyframes rise {
+            from { opacity: 0; transform: translateY(12px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .container > * { animation: rise 0.5s var(--transition) both; }
+        .container > *:nth-child(1) { animation-delay: 0ms; }
+        .container > *:nth-child(2) { animation-delay: 60ms; }
+        .container > *:nth-child(3) { animation-delay: 120ms; }
+        .container > *:nth-child(4) { animation-delay: 180ms; }
+        .container > *:nth-child(5) { animation-delay: 240ms; }
+        .container > *:nth-child(6) { animation-delay: 300ms; }
+
+        /* === Header === */
+        .header {
+            position: relative;
+            text-align: center;
+            padding: 38px 20px 32px;
+            background: var(--glass-bg-strong);
+            border: 1px solid var(--glass-border-strong);
+            border-radius: var(--radius);
+            margin-bottom: 14px;
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            box-shadow: var(--glass-shadow-lg);
+            overflow: hidden;
+        }
+        .header::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(560px 280px at 50% -30%, rgba(99, 102, 241, 0.45), transparent 70%),
+                radial-gradient(360px 200px at 100% 100%, rgba(168, 85, 247, 0.22), transparent 70%);
+            pointer-events: none;
+        }
+        .header h1 {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.015em;
+            margin-bottom: 6px;
+        }
+        .header p {
+            position: relative;
+            color: var(--text-muted);
+            font-size: 13.5px;
+        }
+        .brand-logo {
+            height: 44px;
+            width: auto;
+            border-radius: var(--radius-sm);
+            object-fit: contain;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+        .brand-icon {
+            font-size: 28px;
+            color: #fff;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* === Stats === */
+        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+        .stat {
+            position: relative;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius);
+            padding: 14px 10px;
+            text-align: center;
+            backdrop-filter: var(--glass-blur-sm);
+            -webkit-backdrop-filter: var(--glass-blur-sm);
+            box-shadow: var(--glass-shadow);
+            overflow: hidden;
+            transition: transform var(--transition), border-color var(--transition);
+        }
+        .stat::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 40%);
+            pointer-events: none;
+        }
+        .stat:hover { transform: translateY(-2px); border-color: var(--glass-border-strong); }
+        .stat-value {
+            font-size: 17px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #a5b4fc, #c4b5fd);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.01em;
+        }
+        .stat-label {
+            font-size: 10.5px;
+            color: var(--text-muted);
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        /* === Sections === */
+        .section {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius);
+            padding: 16px 18px;
+            margin-bottom: 12px;
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            box-shadow: var(--glass-shadow);
+        }
+        .section h2 {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 14px;
+        }
+        .section h2 i { font-size: 14px; color: var(--accent); }
+        .section-center { text-align: center; }
+        .section-center h2 { justify-content: center; }
+
+        /* === Subscription URL === */
+        .sub-box {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+        }
+        .sub-box input {
+            flex: 1;
+            min-width: 0;
+            padding: 11px 14px;
+            background: rgba(0, 0, 0, 0.32);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-size: 12.5px;
+            font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+            transition: border-color var(--transition), background var(--transition);
+        }
+        .sub-box input:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: rgba(99, 102, 241, 0.08);
+        }
+
+        /* === Buttons === */
+        .copy-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 9px 14px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            border: none;
+            border-radius: var(--radius-sm);
+            color: #fff;
+            font-size: 12.5px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            white-space: nowrap;
+            box-shadow: 0 4px 14px -2px rgba(99, 102, 241, 0.4);
+            transition: transform 0.15s ease, box-shadow var(--transition), background var(--transition);
+        }
+        .copy-btn i { font-size: 14px; }
+        .copy-btn:hover { box-shadow: 0 6px 20px -4px rgba(99, 102, 241, 0.55); }
+        .copy-btn:active { transform: scale(0.96); }
+        .copy-btn.success {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            box-shadow: 0 4px 14px -2px rgba(34, 197, 94, 0.4);
+        }
+
+        /* Subtle copy button for inner config rows */
+        .config .copy-btn {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--glass-border);
+            color: var(--text);
+            box-shadow: none;
+            padding: 7px 12px;
+        }
+        .config .copy-btn:hover {
+            background: rgba(99, 102, 241, 0.16);
+            border-color: rgba(99, 102, 241, 0.4);
+        }
+        .config .copy-btn.success {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            border-color: transparent;
+            color: #fff;
+        }
+
+        /* === Locations === */
+        .location {
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-sm);
+            margin-bottom: 8px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.025);
+            transition: border-color var(--transition), background var(--transition);
+        }
+        .location:last-child { margin-bottom: 0; }
+        .location:hover { border-color: var(--glass-border-strong); }
+        .location.open {
+            border-color: rgba(99, 102, 241, 0.35);
+            background: rgba(99, 102, 241, 0.04);
+        }
+        .location-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 14px;
+            cursor: pointer;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .location-flag { font-size: 22px; line-height: 1; flex-shrink: 0; }
+        .location-name { flex: 1; font-weight: 500; font-size: 14.5px; }
+        .location-count {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 22px;
+            height: 22px;
+            padding: 0 7px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--glass-border);
+            border-radius: 999px;
+        }
+        .location.open .location-count {
+            color: #c4b5fd;
+            background: rgba(99, 102, 241, 0.16);
+            border-color: rgba(99, 102, 241, 0.3);
+        }
+        .location-arrow {
+            color: var(--text-dim);
+            display: inline-flex;
+            transition: transform var(--transition), color var(--transition);
+        }
+        .location.open .location-arrow { transform: rotate(180deg); color: var(--accent); }
+        /* Grid 0fr → 1fr trick: animates to actual content height, no jank */
+        .location-configs {
+            display: grid;
+            grid-template-rows: 0fr;
+            transition: grid-template-rows 0.32s var(--transition);
+        }
+        .location.open .location-configs { grid-template-rows: 1fr; }
+        .location-configs-inner {
+            min-height: 0;
+            overflow: hidden;
+            border-top: 1px solid transparent;
+            transition: border-color 0.32s var(--transition);
+        }
+        .location.open .location-configs-inner {
+            border-top-color: var(--glass-border);
+        }
+        .config {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 14px;
+        }
+        .config-name {
+            font-size: 13px;
+            color: var(--text);
+            font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+        }
+
+        /* === QR — clean, no extra frame.
+           mix-blend-mode: screen makes the dark QR background blend into the glass
+           card seamlessly while keeping white modules crisp and high-contrast. === */
+        .qr-image {
+            display: block;
+            width: 200px;
+            height: 200px;
+            margin: 4px auto 12px;
+            mix-blend-mode: screen;
+            transition: transform var(--transition);
+        }
+        .qr-image:hover { transform: scale(1.04); }
+        .qr-hint { font-size: 12px; color: var(--text-muted); }
+
+        /* === App buttons grid === */
         .btn-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-        .app-btn { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; color: var(--text); text-decoration: none; font-size: 14px; transition: background 0.15s, border-color 0.15s; }
-        .app-btn:hover { background: #1a1a1a; border-color: var(--accent); }
-        @media (max-width: 360px) { .btn-grid { grid-template-columns: 1fr; } }
+        .app-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            text-decoration: none;
+            font-size: 13.5px;
+            font-weight: 500;
+            transition: transform 0.15s ease, background var(--transition), border-color var(--transition);
+        }
+        .app-btn i {
+            font-size: 18px;
+            color: var(--accent);
+            flex-shrink: 0;
+        }
+        .app-btn:hover {
+            background: rgba(99, 102, 241, 0.08);
+            border-color: rgba(99, 102, 241, 0.4);
+        }
+        .app-btn:active { transform: scale(0.98); }
+
+        /* === Toast === */
+        .toast {
+            position: fixed;
+            bottom: calc(20px + env(safe-area-inset-bottom));
+            left: 50%;
+            transform: translateX(-50%) translateY(120%);
+            background: var(--glass-bg-strong);
+            border: 1px solid rgba(34, 197, 94, 0.4);
+            color: #4ade80;
+            padding: 11px 18px;
+            border-radius: 999px;
+            font-size: 13.5px;
+            font-weight: 600;
+            transition: transform 0.35s var(--transition), opacity 0.35s var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            box-shadow: var(--glass-shadow-lg);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 9999;
+        }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        .toast i { font-size: 16px; }
+
+        @media (max-width: 380px) {
+            .btn-grid { grid-template-columns: 1fr; }
+            .stat-value { font-size: 15px; }
+            .header h1 { font-size: 21px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .container > * { animation: none; }
+            .location-configs { transition: none; }
+        }
     </style>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>${logoHtml} ${pageTitle}</h1>
+            <h1>${logoHtml} <span>${pageTitle}</span></h1>
             <p>Ваша персональная конфигурация</p>
         </div>
-        
+
         <div class="stats">
             <div class="stat">
                 <div class="stat-value">${trafficUsed.toFixed(1)} ГБ</div>
@@ -1405,31 +1776,34 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                 <div class="stat-label">Действует до</div>
             </div>
         </div>
-        
+
         <div class="section">
             <h2><i class="ti ti-link"></i> ССЫЛКА ДЛЯ ПРИЛОЖЕНИЙ</h2>
             <div class="sub-box">
                 <input type="text" value="${baseUrl}" readonly id="subUrl">
-                <button class="copy-btn" onclick="copyText('${baseUrl}', this)">Копировать</button>
+                <button class="copy-btn" onclick="copyText('${baseUrl}', this)"><i class="ti ti-copy"></i> Копировать</button>
             </div>
         </div>
-        
+
         <div class="section">
             <h2><i class="ti ti-world"></i> ЛОКАЦИИ</h2>
-            ${[...locations.entries()].map(([name, loc], locIdx) => `
+            ${[...locations.entries()].map(([name, loc]) => `
             <div class="location">
                 <div class="location-header" onclick="this.parentElement.classList.toggle('open')">
                     <span class="location-flag">${loc.flag}</span>
                     <span class="location-name">${name}</span>
+                    <span class="location-count">${loc.configs.length}</span>
                     <span class="location-arrow"><i class="ti ti-chevron-down"></i></span>
                 </div>
                 <div class="location-configs">
-                    ${loc.configs.map((cfg, i) => `
-                    <div class="config">
-                        <span class="config-name">${cfg.name}</span>
-                        <button class="copy-btn" onclick="copyUri(this)">Копировать</button>
+                    <div class="location-configs-inner">
+                        ${loc.configs.map(cfg => `
+                        <div class="config">
+                            <span class="config-name">${cfg.name}</span>
+                            <button class="copy-btn" onclick="copyUri(this)"><i class="ti ti-copy"></i> Копировать</button>
+                        </div>
+                        `).join('')}
                     </div>
-                    `).join('')}
                 </div>
             </div>
             `).join('')}
@@ -1438,29 +1812,23 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         ${qrSectionHtml}
         ${buttonsHtml}
     </div>
-    
+
     <div class="toast" id="toast"><i class="ti ti-check"></i> Скопировано</div>
-    
+
     <script>
-        // All URIs for copying
         const uris = ${JSON.stringify(allConfigs.map(c => c.uri))};
-        
-        function copyText(text, btn) {
-            doCopy(text, btn);
-        }
-        
+
+        function copyText(text, btn) { doCopy(text, btn); }
+
         function copyUri(btn) {
             const allBtns = document.querySelectorAll('.location-configs .copy-btn');
             let idx = 0;
             for (let i = 0; i < allBtns.length; i++) {
-                if (allBtns[i] === btn) {
-                    idx = i;
-                    break;
-                }
+                if (allBtns[i] === btn) { idx = i; break; }
             }
             doCopy(uris[idx], btn);
         }
-        
+
         function doCopy(text, btn) {
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(text).then(() => success(btn)).catch(() => fallback(text, btn));
@@ -1468,7 +1836,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                 fallback(text, btn);
             }
         }
-        
+
         function fallback(text, btn) {
             const ta = document.createElement('textarea');
             ta.value = text;
@@ -1478,21 +1846,269 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             try { document.execCommand('copy'); success(btn); } catch(e) {}
             document.body.removeChild(ta);
         }
-        
+
         function success(btn) {
-            const orig = btn.textContent;
-            btn.innerHTML = '<i class="ti ti-check"></i>';
+            const orig = btn.innerHTML;
+            btn.innerHTML = '<i class="ti ti-check"></i> Готово';
             btn.classList.add('success');
-            document.getElementById('toast').classList.add('show');
+            const toast = document.getElementById('toast');
+            toast.classList.add('show');
             setTimeout(() => {
-                btn.textContent = orig;
+                btn.innerHTML = orig;
                 btn.classList.remove('success');
-                document.getElementById('toast').classList.remove('show');
-            }, 1500);
+                toast.classList.remove('show');
+            }, 1600);
         }
     </script>
 </body>
 </html>`;
+}
+
+// ==================== HWID (subscription fetch) ====================
+
+// Default remark texts when the admin has not configured them in settings.
+// Kept short so they fit the 200-char limit even after sanitation.
+const HWID_DEFAULT_REMARK_NOT_SUPPORTED = 'Update to HAPP — your client does not support HWID';
+const HWID_DEFAULT_REMARK_MAX_DEVICES   = 'Device limit reached — remove unused devices in panel';
+
+// Static base64 of "aes-256-gcm:x" used in the synthetic ss:// URI below.
+// Pre-computed to avoid a Buffer.from() call on every blocked request.
+const HWID_FAKE_SS_USERINFO_B64 = 'YWVzLTI1Ni1nY206eA==';
+
+// Soft-block hard limits. Bound the loop and payload size for any caller.
+// Per-line length is intentionally short: client UIs truncate long server
+// names (HAPP, Hiddify, Clash). 32 chars fit comfortably on a phone screen.
+const HWID_FAKE_MAX_LINES     = 12;
+const HWID_FAKE_MAX_LINE_LEN  = 32;
+
+/**
+ * Split admin-entered remark text into individual lines, one per fake server.
+ * Empty lines are dropped, each line is trimmed and length-capped, and the
+ * result is deduplicated and truncated to HWID_FAKE_MAX_LINES.
+ * @param {string} remark Multiline admin text.
+ * @param {string} fallback Default line used when remark is empty.
+ * @returns {string[]} Non-empty list of safe single-line strings.
+ */
+function parseRemarkLines(remark, fallback) {
+    const raw = String(remark || '').replace(/\r\n?/g, '\n');
+    const seen = new Set();
+    const out = [];
+    for (const part of raw.split('\n')) {
+        const line = part.trim().slice(0, HWID_FAKE_MAX_LINE_LEN);
+        if (!line || seen.has(line)) continue;
+        seen.add(line);
+        out.push(line);
+        if (out.length >= HWID_FAKE_MAX_LINES) break;
+    }
+    if (out.length === 0) out.push(String(fallback || HWID_DEFAULT_REMARK_NOT_SUPPORTED).slice(0, HWID_FAKE_MAX_LINE_LEN));
+    return out;
+}
+
+/**
+ * Build a multi-server "subscription" body where each fake server carries one
+ * line of the admin message as its name. Servers point at 127.0.0.0/8 with
+ * different last octets so they appear as distinct entries in every client.
+ * Names are deduplicated by parseRemarkLines, so YAML/JSON tag uniqueness
+ * (required by Clash and sing-box) is preserved.
+ * @param {string} format Detected subscription format.
+ * @param {string[]} lines Non-empty list of safe single-line names.
+ * @returns {string} Encoded body matching the requested format.
+ */
+function generateFakeSubscriptionContent(format, lines) {
+    // Each fake server gets a unique loopback address so duplicate names are
+    // impossible to produce server-key collisions in Clash even if the admin
+    // somehow bypasses dedupe.
+    const fakeServers = lines.map((name, i) => ({
+        name,
+        host: `127.0.0.${(i % 254) + 1}`,
+    }));
+
+    switch (format) {
+        case 'shadowrocket': {
+            const uris = fakeServers.map(s =>
+                `ss://${HWID_FAKE_SS_USERINFO_B64}@${s.host}:1#${encodeURIComponent(s.name)}`
+            );
+            return Buffer.from(uris.join('\n'), 'utf8').toString('base64');
+        }
+        case 'clash':
+        case 'yaml': {
+            const proxies = fakeServers.map(s => {
+                const yamlName = s.name.replace(/"/g, '\\"');
+                return `  - { name: "${yamlName}", type: ss, server: ${s.host}, port: 1, cipher: aes-256-gcm, password: x }`;
+            });
+            const proxyNames = fakeServers.map(s => `"${s.name.replace(/"/g, '\\"')}"`).join(', ');
+            return [
+                'proxies:',
+                ...proxies,
+                'proxy-groups:',
+                `  - { name: "PROXY", type: select, proxies: [${proxyNames}] }`,
+                'rules:',
+                '  - MATCH,PROXY',
+            ].join('\n');
+        }
+        case 'singbox':
+        case 'json':
+            return JSON.stringify({
+                outbounds: fakeServers.map(s => ({
+                    type: 'shadowsocks',
+                    tag: s.name,
+                    server: s.host,
+                    server_port: 1,
+                    method: 'aes-256-gcm',
+                    password: 'x',
+                })),
+                route: { final: fakeServers[0].name },
+            }, null, 2);
+        case 'v2ray-json':
+            return JSON.stringify({
+                outbounds: fakeServers.map(s => ({
+                    tag: s.name,
+                    protocol: 'shadowsocks',
+                    settings: { servers: [{ address: s.host, port: 1, method: 'aes-256-gcm', password: 'x' }] },
+                })),
+            }, null, 2);
+        case 'uri':
+        case 'raw':
+        default:
+            return fakeServers
+                .map(s => `ss://${HWID_FAKE_SS_USERINFO_B64}@${s.host}:1#${encodeURIComponent(s.name)}`)
+                .join('\n');
+    }
+}
+
+/**
+ * Encode a HAPP `announce` header value. Multi-line and non-ASCII text MUST
+ * be base64-encoded — raw \n is not allowed in HTTP headers and HAPP refuses
+ * non-base64 non-ASCII payloads.
+ * @param {string} text Already-trimmed announce text.
+ * @returns {string} HAPP-compatible header value (raw or "base64:...").
+ */
+function encodeAnnounceHeader(text) {
+    const isAsciiSingleLine = /^[\x20-\x7E]+$/.test(text);
+    return isAsciiSingleLine
+        ? text
+        : `base64:${Buffer.from(text, 'utf8').toString('base64')}`;
+}
+
+/**
+ * Send a soft-block response: a structurally valid subscription whose servers
+ * carry the admin-configured remark text (one fake server per non-empty line).
+ * The response is never cached (per-request decision) and reuses the regular
+ * sender so all common headers (profile title, traffic, support-url, HAPP
+ * routing, etc.) stay consistent with normal subscriptions.
+ *
+ * @param {string} remark Multiline admin text (or default fallback).
+ * @param {string} fallback Default line used when remark is empty.
+ */
+function sendFakeSubscription(res, user, format, userAgent, settings, remark, fallback, extraHeaders) {
+    const lines = parseRemarkLines(remark, fallback);
+    const data = {
+        content: generateFakeSubscriptionContent(format, lines),
+        profileTitle: getSubscriptionTitle(user),
+        username: user.username || user.userId,
+        traffic: { tx: user.traffic?.tx || 0, rx: user.traffic?.rx || 0 },
+        trafficLimit: user.trafficLimit || 0,
+        expireAt: user.expireAt,
+    };
+    res.set('Cache-Control', 'no-store');
+    sendCachedSubscription(res, data, format, userAgent, settings, extraHeaders);
+}
+
+/**
+ * Enforce HWID device policy before returning subscription payload.
+ *
+ * Modes (configured in panel → HAPP integration → HWID):
+ * - off:        no enforcement, no HWID tracking. Device counting still
+ *               happens at Hysteria connection time by unique client IP.
+ * - permissive: clients sending x-hwid are tracked and capped here. Clients
+ *               without x-hwid receive the regular subscription; their
+ *               devices are counted by unique IP at connection time only.
+ * - strict:     same as permissive, but clients without x-hwid receive a
+ *               soft-block subscription (one fake server with the admin
+ *               remark) instead of real configs.
+ *
+ * In all modes, when a client sending x-hwid exceeds the limit, it gets the
+ * same soft-block response with the limit-reached remark; HAPP also receives
+ * an in-app popup via the `announce` header.
+ *
+ * @returns {Promise<{ extraHeaders: Record<string, string>, aborted: boolean }>}
+ */
+async function runHwidSubscriptionGate(req, res, user, settings, format) {
+    const mode = hwidDeviceService.resolveMode(user, settings);
+    const limit = hwidDeviceService.effectiveDeviceLimit(user);
+    const extra = {};
+
+    if (mode === 'off' || limit === 0) {
+        return { extraHeaders: extra, aborted: false };
+    }
+    if (limit < 0) {
+        return { extraHeaders: extra, aborted: false };
+    }
+
+    extra['x-hwid-active'] = 'true';
+    extra['x-hwid-limit'] = 'true';
+
+    const userAgent = req.headers['user-agent'] || '';
+    const hwidCfg = settings?.subscription?.happ?.hwid || {};
+    const isHapp = /happ/i.test(userAgent);
+
+    const h = extractHwidHeaders(req);
+    if (!h) {
+        if (mode === 'strict') {
+            const oh = { ...extra, 'x-hwid-not-supported': 'true' };
+            // For HAPP, fall back to the remark text if no popup text is configured.
+            // HAPP almost never hits this branch (it always sends x-hwid), but custom
+            // builds without HWID support exist and benefit from a popup.
+            if (isHapp) {
+                const popup = (hwidCfg.notSupportedRemark || '').trim()
+                    || HWID_DEFAULT_REMARK_NOT_SUPPORTED;
+                oh['announce'] = encodeAnnounceHeader(popup);
+            }
+            sendFakeSubscription(res, user, format, userAgent, settings,
+                hwidCfg.notSupportedRemark, HWID_DEFAULT_REMARK_NOT_SUPPORTED, oh);
+            return { extraHeaders: {}, aborted: true };
+        }
+        extra['x-hwid-not-supported'] = 'true';
+        return { extraHeaders: extra, aborted: false };
+    }
+
+    const enforce = !user.hwidEnforceFrom || new Date(user.hwidEnforceFrom) <= new Date();
+    const result = await hwidDeviceService.checkAndUpsert({
+        userId: user.userId,
+        headers: h,
+        limit,
+        enforce,
+    });
+
+    if (result.exceeded) {
+        const oh = { ...extra, 'x-hwid-max-devices-reached': 'true' };
+
+        // HAPP popup fallback chain: dedicated announce → remark → default text.
+        // Always set announce on HAPP so the popup is shown even if admin only
+        // filled the remark field.
+        if (isHapp) {
+            const popup = (hwidCfg.maxDevicesAnnounce || '').trim()
+                || (hwidCfg.maxDevicesRemark || '').trim()
+                || HWID_DEFAULT_REMARK_MAX_DEVICES;
+            oh['announce'] = encodeAnnounceHeader(popup);
+        }
+
+        webhookService.emitDeviceLimitReachedOnce(user.userId, { limit });
+        sendFakeSubscription(res, user, format, userAgent, settings,
+            hwidCfg.maxDevicesRemark, HWID_DEFAULT_REMARK_MAX_DEVICES, oh);
+        return { extraHeaders: {}, aborted: true };
+    }
+
+    if (result.isNew) {
+        webhookService.emit(webhookService.EVENTS.USER_DEVICE_ADDED, {
+            userId: user.userId,
+            hwid: h.hwid,
+            platform: h.platform,
+            deviceModel: h.deviceModel,
+        });
+    }
+
+    return { extraHeaders: extra, aborted: false };
 }
 
 // ==================== MAIN ROUTE ====================
@@ -1539,7 +2155,12 @@ router.get('/files/:token', async (req, res) => {
             
             const baseUrl = `${req.protocol}://${req.get('host')}/api/files/${token}`;
             const html = await generateHTML(user, nodes, token, baseUrl, settings);
-            return res.type('text/html').send(html);
+            return res
+                .type('text/html')
+                .set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+                .set('Pragma', 'no-cache')
+                .set('Expires', '0')
+                .send(html);
         }
         
         // For apps — detect format and cache
@@ -1552,29 +2173,32 @@ router.get('/files/:token', async (req, res) => {
         // Read settings (from Redis cache — fast)
         const settings = await getSettings();
 
-        // Check cache
-        const cached = await cache.getSubscription(token, format);
-        if (cached) {
-            logger.debug(`[Sub] Cache HIT: ${token}:${format}`);
-            return sendCachedSubscription(res, cached, format, userAgent, settings);
-        }
-        
-        // Cache miss — generate
-        logger.debug(`[Sub] Cache MISS: token=${token.substring(0,8)}..., format=${format}`);
-        
         const user = await getUserByToken(token);
-        
+
         if (!user) {
             logger.warn(`[Sub] User not found for token: ${token}`);
             return res.status(404).type('text/plain').send('# User not found');
         }
-        
+
         const validation = validateUser(user);
-        
+
         if (!validation.valid) {
             logger.warn(`[Sub] User ${user.userId} invalid: ${validation.error}`);
             return res.status(403).type('text/plain').send(`# ${validation.error}`);
         }
+
+        const { extraHeaders: hwidHeaders, aborted: hwidAborted } = await runHwidSubscriptionGate(req, res, user, settings, format);
+        if (hwidAborted) return;
+
+        // Check cache (after HWID gate — limit is enforced per request)
+        const cached = await cache.getSubscription(token, format);
+        if (cached) {
+            logger.debug(`[Sub] Cache HIT: ${token}:${format}`);
+            return sendCachedSubscription(res, cached, format, userAgent, settings, hwidHeaders);
+        }
+        
+        // Cache miss — generate
+        logger.debug(`[Sub] Cache MISS: token=${token.substring(0,8)}..., format=${format}`);
         
         const nodes = await getActiveNodes(user);
         if (nodes.length === 0) {
@@ -1591,7 +2215,7 @@ router.get('/files/:token', async (req, res) => {
         await cache.setSubscription(token, format, subscriptionData);
         
         // Send response
-        return sendCachedSubscription(res, subscriptionData, format, userAgent, settings);
+        return sendCachedSubscription(res, subscriptionData, format, userAgent, settings, hwidHeaders);
         
     } catch (error) {
         logger.error(`[Sub] Error: ${error.message}`);
@@ -1656,7 +2280,7 @@ function generateSubscriptionData(user, nodes, format, userAgent, happProviderId
 /**
  * Send cached subscription response
  */
-function sendCachedSubscription(res, data, format, userAgent, settings) {
+function sendCachedSubscription(res, data, format, userAgent, settings, hwidExtraHeaders = null) {
     let contentType = 'text/plain';
     
     switch (format) {
@@ -1730,6 +2354,12 @@ function sendCachedSubscription(res, data, format, userAgent, settings) {
                 }
                 if (happ.colorProfile)  headers['color-profile'] = happ.colorProfile;
             }
+        }
+    }
+
+    if (hwidExtraHeaders && typeof hwidExtraHeaders === 'object') {
+        for (const [k, v] of Object.entries(hwidExtraHeaders)) {
+            if (v != null && v !== '') headers[k] = v;
         }
     }
 

@@ -6,6 +6,13 @@ const selectedGroupIds = new Set(
 );
 const trafficLimitGB = isEditMode ? Math.round((user.trafficLimit || 0) / (1024 * 1024 * 1024)) : 0;
 const maxDevicesValue = isEditMode ? (parseInt(user.maxDevices, 10) || 0) : 0;
+const hwidModeVal = isEditMode ? (user.hwidMode || 'inherit') : 'inherit';
+let hwidEnforceStr = '';
+if (isEditMode && user.hwidEnforceFrom) {
+    const _d = new Date(user.hwidEnforceFrom);
+    const p = (n) => String(n).padStart(2, '0');
+    hwidEnforceStr = `${_d.getFullYear()}-${p(_d.getMonth()+1)}-${p(_d.getDate())}T${p(_d.getHours())}:${p(_d.getMinutes())}`;
+}
 const hasExpireAt = isEditMode && user.expireAt;
 const expireAtIso = hasExpireAt ? new Date(user.expireAt).toISOString() : '';
 %>
@@ -67,6 +74,29 @@ const expireAtIso = hasExpireAt ? new Date(user.expireAt).toISOString() : '';
                     <small><%= t('users.maxDevicesHint') %></small>
                 </div>
             </div>
+
+            <% if (typeof hwidEnabled !== 'undefined' && hwidEnabled) { %>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="hwidMode"><%= t('users.hwidMode') %></label>
+                    <select name="hwidMode" id="hwidMode">
+                        <option value="inherit" <%= hwidModeVal === 'inherit' ? 'selected' : '' %>><%= t('users.hwidModeInherit') %></option>
+                        <option value="off" <%= hwidModeVal === 'off' ? 'selected' : '' %>><%= t('users.hwidModeOff') %></option>
+                        <option value="strict" <%= hwidModeVal === 'strict' ? 'selected' : '' %>><%= t('users.hwidModeStrict') %></option>
+                    </select>
+                    <small class="hint"><%= t('users.hwidModeHint') %></small>
+                </div>
+                <div class="form-group">
+                    <label for="hwidEnforceFrom"><%= t('users.hwidEnforceFrom') %></label>
+                    <input type="datetime-local" name="hwidEnforceFrom" id="hwidEnforceFrom" value="<%= hwidEnforceStr %>">
+                    <small class="hint"><%= t('users.hwidEnforceFromHint') %></small>
+                </div>
+            </div>
+            <% } else { %>
+            <%# Preserve existing per-user HWID overrides as hidden inputs when feature is off globally. %>
+            <input type="hidden" name="hwidMode" value="<%= hwidModeVal %>">
+            <input type="hidden" name="hwidEnforceFrom" value="<%= hwidEnforceStr %>">
+            <% } %>
             
             <div class="form-group">
                 <label><%= t('users.expireModeLabel') %></label>
@@ -104,7 +134,10 @@ const expireAtIso = hasExpireAt ? new Date(user.expireAt).toISOString() : '';
             </div>
             
             <div class="form-actions">
-                <button type="submit" class="btn btn-primary"><%= isEditMode ? t('common.save') : t('users.createUser') %></button>
+                <button type="submit" class="btn btn-primary">
+                    <i class="ti <%= isEditMode ? 'ti-device-floppy' : 'ti-user-plus' %>"></i>
+                    <%= isEditMode ? t('common.save') : t('users.createUser') %>
+                </button>
                 <a href="<%= isEditMode ? ('/panel/users/' + user.userId) : '/panel/users' %>" class="btn"><%= t('common.cancel') %></a>
             </div>
         </form>

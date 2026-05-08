@@ -82,7 +82,7 @@
                             <div class="empty-state">
                                 <span class="empty-icon"><i class="ti ti-server"></i></span>
                                 <p><%= t('nodes.noNodes') %></p>
-                                <a href="/panel/nodes/add" class="btn btn-primary"><%= t('nodes.addFirstNode') %></a>
+                                <a href="/panel/nodes/add" class="btn btn-primary"><i class="ti ti-plus"></i> <%= t('nodes.addFirstNode') %></a>
                             </div>
                         </td>
                     </tr>
@@ -480,7 +480,7 @@
                         <span><%= t('network.autoDeploy') %></span>
                     </label>
                     <button type="button" class="btn" id="modalCancel"><%= t('common.cancel') %></button>
-                    <button type="submit" class="btn btn-primary" id="linkModalSubmit"><%= t('network.createLink') %></button>
+                    <button type="submit" class="btn btn-primary" id="linkModalSubmit"><i class="ti ti-plus"></i> <%= t('network.createLink') %></button>
                 </div>
             </form>
         </div>
@@ -569,7 +569,7 @@
                 <div class="form-actions">
                     <button type="button" class="btn" id="reconnectModalCancel"><%= t('common.cancel') %></button>
                     <button type="button" class="btn btn-primary" id="reconnectModalSubmit">
-                        <i class="ti ti-check"></i> <%= t('common.save') %>
+                        <i class="ti ti-device-floppy"></i> <%= t('common.save') %>
                     </button>
                 </div>
             </div>
@@ -639,8 +639,9 @@
 .view-tabs {
     display: flex;
     gap: 4px;
-    background: var(--bg-secondary, rgba(255,255,255,0.03));
-    border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 999px;
     padding: 3px;
 }
 .view-tab {
@@ -654,15 +655,16 @@
     font-size: 13px;
     font-weight: 500;
     font-family: inherit;
-    border-radius: 6px;
+    border-radius: 999px;
     cursor: pointer;
     transition: all 0.15s;
     white-space: nowrap;
 }
 .view-tab:hover { color: var(--text-primary, #e2e8f0); }
 .view-tab.active {
-    background: var(--accent, #6366f1);
+    background: linear-gradient(135deg, var(--accent, #6366f1), #7c3aed);
     color: #fff;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
 }
 .tab-badge {
     background: rgba(255,255,255,0.15);

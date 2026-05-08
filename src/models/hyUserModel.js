@@ -66,6 +66,19 @@ const hyUserSchema = new mongoose.Schema({
         type: Number,
         default: 0,
     },
+
+    /** HWID device limit override: inherit panel mode, off, or strict (require x-hwid). */
+    hwidMode: {
+        type: String,
+        enum: ['inherit', 'off', 'strict'],
+        default: 'inherit',
+    },
+
+    /** When set in the future, HWID devices are recorded but limit is not enforced until this moment. */
+    hwidEnforceFrom: {
+        type: Date,
+        default: null,
+    },
     
     expireAt: {
         type: Date,

@@ -32,11 +32,18 @@ const EVENTS = {
     USER_DISABLED: 'user.disabled',
     USER_TRAFFIC_EXCEEDED: 'user.traffic_exceeded',
     USER_EXPIRED: 'user.expired',
+    /** First time a new HWID registers for this user (subscription fetch). */
+    USER_DEVICE_ADDED: 'user.device_added',
+    /** Emitted once per panel process per user when HWID limit blocks subscription. */
+    USER_DEVICE_LIMIT_REACHED: 'user.device_limit_reached',
     NODE_ONLINE: 'node.online',
     NODE_OFFLINE: 'node.offline',
     NODE_ERROR: 'node.error',
     SYNC_COMPLETED: 'sync.completed',
 };
+
+/** Dedup device-limit webhooks (in-memory; resets on restart). */
+const _deviceLimitNotified = new Set();
 
 /**
  * Compute HMAC-SHA256 signature
@@ -113,6 +120,29 @@ function emit(event, data) {
 }
 
 /**
+ * Emit user.device_limit_reached at most once per userId until process restart
+ * or until clearDeviceLimitNotified(userId) is called.
+ * @param {string} userId
+ * @param {object} data
+ */
+function emitDeviceLimitReachedOnce(userId, data) {
+    if (_deviceLimitNotified.has(userId)) return;
+    _deviceLimitNotified.add(userId);
+    emit(EVENTS.USER_DEVICE_LIMIT_REACHED, { userId, ...data });
+}
+
+/**
+ * Reset the in-memory dedup flag so the next limit hit emits a fresh webhook.
+ * Call after admin actions that can unblock the user (device unlink, raise limit,
+ * disable HWID enforcement, user deletion).
+ * @param {string} userId
+ */
+function clearDeviceLimitNotified(userId) {
+    if (!userId) return;
+    _deviceLimitNotified.delete(userId);
+}
+
+/**
  * Test webhook delivery (used by UI "Test" button).
  * Returns { success, status, error }
  */
@@ -147,4 +177,11 @@ async function test(url, secret) {
     }
 }
 
-module.exports = { emit, send, test, EVENTS };
+module.exports = {
+    emit,
+    send,
+    test,
+    EVENTS,
+    emitDeviceLimitReachedOnce,
+    clearDeviceLimitNotified,
+};

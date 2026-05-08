@@ -1,60 +1,50 @@
 <!-- ==================== TAB: SECURITY ==================== -->
 <div class="tab-content" id="tab-security">
+    <!-- Quick admin stat-pills -->
+    <div class="settings-stat-row">
+        <div class="settings-stat">
+            <div class="settings-stat-icon"><i class="ti ti-user-shield"></i></div>
+            <div class="settings-stat-content">
+                <div class="settings-stat-label"><%= t('settings.administrator') %></div>
+                <div class="settings-stat-value"><%= admin?.username || 'N/A' %></div>
+            </div>
+        </div>
+        <div class="settings-stat">
+            <div class="settings-stat-icon info"><i class="ti ti-clock"></i></div>
+            <div class="settings-stat-content">
+                <div class="settings-stat-label"><%= t('settings.lastLogin') %></div>
+                <div class="settings-stat-value"><%= admin?.lastLogin ? new Date(admin.lastLogin).toLocaleString(lang === 'en' ? 'en-US' : 'ru-RU') : t('settings.never') %></div>
+            </div>
+        </div>
+        <div class="settings-stat">
+            <div class="settings-stat-icon <%= admin?.twoFactor?.enabled ? 'success' : 'warning' %>">
+                <i class="ti <%= admin?.twoFactor?.enabled ? 'ti-shield-check' : 'ti-shield-off' %>"></i>
+            </div>
+            <div class="settings-stat-content">
+                <div class="settings-stat-label"><%= t('settings.twoFactorStatus') || 'Two-factor' %></div>
+                <div class="settings-stat-value" style="color: <%= admin?.twoFactor?.enabled ? 'var(--success)' : 'var(--warning)' %>">
+                    <%= admin?.twoFactor?.enabled ? t('common.enabled') : t('common.disabled') %>
+                </div>
+            </div>
+        </div>
+        <div class="settings-stat">
+            <div class="settings-stat-icon <%= config.PANEL_IP_WHITELIST ? 'success' : '' %>">
+                <i class="ti ti-network"></i>
+            </div>
+            <div class="settings-stat-content">
+                <div class="settings-stat-label"><%= t('settings.ipWhitelist') %></div>
+                <div class="settings-stat-value"><%= config.PANEL_IP_WHITELIST || t('settings.ipWhitelistDisabled') %></div>
+            </div>
+        </div>
+    </div>
+
     <div class="row">
         <div class="col-6">
             <div class="card">
                 <div class="card-header">
-                    <h2><i class="ti ti-user-shield"></i> <%= t('settings.administrator') %></h2>
-                </div>
-                <div class="card-body">
-                    <div class="settings-list">
-                        <div class="setting-item">
-                            <label><%= t('settings.administrator') %></label>
-                            <span><%= admin?.username || 'N/A' %></span>
-                        </div>
-                        <div class="setting-item">
-                            <label><%= t('settings.lastLogin') %></label>
-                            <span><%= admin?.lastLogin ? new Date(admin.lastLogin).toLocaleString(lang === 'en' ? 'en-US' : 'ru-RU') : t('settings.never') %></span>
-                        </div>
-                        <div class="setting-item">
-                            <label><%= t('settings.twoFactorStatus') || 'Two-factor authentication' %></label>
-                            <span><%= admin?.twoFactor?.enabled ? t('common.enabled') : t('common.disabled') %></span>
-                        </div>
-                        <div class="setting-item">
-                            <label><%= t('settings.ipWhitelist') %></label>
-                            <span><%= config.PANEL_IP_WHITELIST || t('settings.ipWhitelistDisabled') %></span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Node Auth API - под Администратором -->
-            <div class="card" style="margin-top: 1rem;">
-                <div class="card-header">
-                    <h2><i class="ti ti-lock"></i> <%= t('settings.nodeAuth') || 'Node Auth API' %></h2>
-                </div>
-                <div class="card-body">
-                    <form method="POST" action="/panel/settings">
-                        <label class="checkbox-label" style="margin-bottom: 0.75rem;">
-                            <input type="checkbox" name="nodeAuth.insecure"
-                                   <%= settings?.nodeAuth?.insecure !== false ? 'checked' : '' %>>
-                            <span><%= t('settings.nodeAuthInsecure') || 'Allow self-signed certificates' %></span>
-                        </label>
-                        <p class="hint" style="margin-bottom: 1rem;">
-                            <%= t('settings.nodeAuthInsecureHint') || 'Enable if panel uses HTTP or self-signed SSL. Nodes will accept any certificate when connecting to auth API. Disable for production with valid SSL.' %>
-                        </p>
-                        <button type="submit" class="btn btn-primary"><%= t('common.save') || 'Save' %></button>
-                    </form>
-                </div>
-            </div>
-        </div>
-        
-        <div class="col-6">
-            <div class="card" style="height: 100%;">
-                <div class="card-header">
                     <h2><i class="ti ti-key"></i> <%= t('settings.changePassword') %></h2>
                 </div>
-                <div class="card-body" style="height: calc(100% - 56px);">
+                <div class="card-body">
                     <form method="POST" action="/panel/settings/password">
                         <div class="form-group">
                             <label><%= t('settings.currentPassword') %></label>
@@ -69,24 +59,56 @@
                             <input type="password" name="confirmPassword" minlength="6" required>
                         </div>
                         <% if (admin?.twoFactor?.enabled) { %>
-                        <p class="hint" style="margin-bottom: 1rem;"><%= t('settings.passwordTotpNextStepHint') || 'После проверки пароля откроется отдельный экран для ввода текущего TOTP-кода.' %></p>
+                        <p class="hint"><%= t('settings.passwordTotpNextStepHint') || 'После проверки пароля откроется отдельный экран для ввода текущего TOTP-кода.' %></p>
                         <% } %>
-                        <button type="submit" class="btn btn-primary"><i class="ti ti-key"></i> <%= t('settings.changePasswordBtn') %></button>
+                        <div class="settings-save-bar">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="ti ti-key"></i> <%= t('settings.changePasswordBtn') %>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-6">
+            <div class="card">
+                <div class="card-header">
+                    <h2><i class="ti ti-lock"></i> <%= t('settings.nodeAuth') || 'Node Auth API' %></h2>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="/panel/settings">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="nodeAuth.insecure"
+                                   <%= settings?.nodeAuth?.insecure !== false ? 'checked' : '' %>>
+                            <span><%= t('settings.nodeAuthInsecure') || 'Allow self-signed certificates' %></span>
+                        </label>
+                        <p class="hint" style="margin-top: 8px;">
+                            <%= t('settings.nodeAuthInsecureHint') || 'Enable if panel uses HTTP or self-signed SSL. Nodes will accept any certificate when connecting to auth API. Disable for production with valid SSL.' %>
+                        </p>
+                        <div class="settings-save-bar">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="ti ti-device-floppy"></i> <%= t('common.save') %>
+                            </button>
+                        </div>
                     </form>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="card" style="margin-top: 1.5rem;">
+    <div class="card" style="margin-top: 16px;">
         <div class="card-header">
             <h2><i class="ti ti-shield-lock"></i> <%= t('settings.totpManagementTitle') || 'TOTP' %></h2>
         </div>
         <div class="card-body">
-            <div class="settings-list" style="margin-bottom: 1rem;">
+            <div class="settings-list" style="margin-bottom: 16px;">
                 <div class="setting-item">
                     <label><%= t('settings.totpStatusLabel') || 'Статус' %></label>
-                    <span><%= admin?.twoFactor?.enabled ? t('common.enabled') : t('common.disabled') %></span>
+                    <span style="color: <%= admin?.twoFactor?.enabled ? 'var(--success)' : 'var(--text-muted)' %>; font-weight: 600;">
+                        <i class="ti <%= admin?.twoFactor?.enabled ? 'ti-shield-check' : 'ti-shield-off' %>"></i>
+                        <%= admin?.twoFactor?.enabled ? t('common.enabled') : t('common.disabled') %>
+                    </span>
                 </div>
                 <div class="setting-item">
                     <label><%= t('settings.totpEnabledAtLabel') || 'Дата подключения' %></label>
@@ -133,7 +155,7 @@
     </div>
 
     <!-- ==================== API KEYS ==================== -->
-    <div class="card" style="margin-top: 1.5rem;">
+    <div class="card" style="margin-top: 16px;">
         <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
             <h2><i class="ti ti-api"></i> <%= t('apiKeys.title') || 'API Keys' %></h2>
             <button class="btn btn-primary btn-sm" onclick="openApiKeyModal()"><i class="ti ti-plus"></i> <%= t('apiKeys.create') || 'Create Key' %></button>
@@ -209,7 +231,7 @@
     </div>
 
     <!-- ==================== MCP INTEGRATION ==================== -->
-    <div class="card" style="margin-top: 1.5rem;" id="mcpCard">
+    <div class="card" style="margin-top: 16px;" id="mcpCard">
         <div class="card-header">
             <h2><i class="ti ti-robot"></i> <%= t('mcp.title') || 'MCP Integration' %></h2>
             <span style="background:linear-gradient(135deg,#6366f1,#a855f7); color:#fff; font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px; letter-spacing:0.05em;">AI</span>
@@ -219,9 +241,9 @@
             <p style="color:var(--text-muted); margin-bottom:1.25rem; font-size:12px; font-style:italic; opacity:0.7;"><%= t('mcp.motto') || 'Censor uses AI to block? Time to get your own.' %></p>
 
             <!-- Endpoint row -->
-            <div style="display:flex; align-items:center; gap:0.5rem; background:var(--bg-tertiary,#111); border:1px solid var(--border); border-radius:8px; padding:0.6rem 0.85rem; margin-bottom:1.25rem;">
-                <span style="color:var(--text-muted); font-size:13px; white-space:nowrap;"><%= t('mcp.endpoint') || 'Endpoint' %>:</span>
-                <code id="mcpEndpointVal" style="flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></code>
+            <div style="display:flex; align-items:center; gap:10px; background: rgba(0,0,0,0.32); border:1px solid var(--glass-border); border-radius:10px; padding:10px 14px; margin-bottom:18px;">
+                <span style="color:var(--text-muted); font-size:12.5px; white-space:nowrap; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;"><%= t('mcp.endpoint') || 'Endpoint' %></span>
+                <code id="mcpEndpointVal" style="flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border: none; padding: 0; background: none;"></code>
                 <button onclick="copyMcpEndpoint()" title="<%= t('mcp.copyEndpoint') %>" style="background:none; border:none; cursor:pointer; color:var(--text-muted); padding:0; line-height:1;" id="mcpCopyBtn">
                     <i class="ti ti-copy" style="font-size:16px;"></i>
                 </button>
@@ -242,7 +264,7 @@
                     <strong>Windows:</strong> <code>%APPDATA%\Claude\claude_desktop_config.json</code>
                 </p>
                 <div style="position:relative;">
-                    <pre id="claude-config" style="background:var(--bg-tertiary,#111); border:1px solid var(--border); border-radius:8px; padding:0.85rem; font-size:12px; overflow-x:auto; margin:0;"></pre>
+                    <pre id="claude-config" style="background:rgba(0,0,0,0.32); border:1px solid var(--glass-border); border-radius:var(--radius-sm); padding:0.85rem; font-size:12px; overflow-x:auto; margin:0;"></pre>
                     <button onclick="copyMcpConfig('claude')" style="position:absolute; top:0.5rem; right:0.5rem; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; padding:3px 10px; font-size:11px; cursor:pointer; color:var(--text-muted);" id="copyBtn-claude"><%= t('mcp.copyConfig') || 'Copy' %></button>
                 </div>
             </div>
@@ -251,7 +273,7 @@
             <div id="mcp-tab-cursor" class="mcp-tab-content" style="display:none;">
                 <p style="font-size:13px; color:var(--text-muted); margin-bottom:0.5rem;"><%= t('mcp.cursorConfigPath') || 'Add to .cursor/mcp.json in your project root:' %></p>
                 <div style="position:relative;">
-                    <pre id="cursor-config" style="background:var(--bg-tertiary,#111); border:1px solid var(--border); border-radius:8px; padding:0.85rem; font-size:12px; overflow-x:auto; margin:0;"></pre>
+                    <pre id="cursor-config" style="background:rgba(0,0,0,0.32); border:1px solid var(--glass-border); border-radius:var(--radius-sm); padding:0.85rem; font-size:12px; overflow-x:auto; margin:0;"></pre>
                     <button onclick="copyMcpConfig('cursor')" style="position:absolute; top:0.5rem; right:0.5rem; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; padding:3px 10px; font-size:11px; cursor:pointer; color:var(--text-muted);" id="copyBtn-cursor"><%= t('mcp.copyConfig') || 'Copy' %></button>
                 </div>
             </div>
@@ -260,13 +282,13 @@
             <div id="mcp-tab-custom" class="mcp-tab-content" style="display:none;">
                 <p style="font-size:13px; color:var(--text-muted); margin-bottom:0.5rem;"><%= t('mcp.customConfigDesc') || 'Any HTTP client with SSE support:' %></p>
                 <div style="position:relative;">
-                    <pre id="custom-config" style="background:var(--bg-tertiary,#111); border:1px solid var(--border); border-radius:8px; padding:0.85rem; font-size:12px; overflow-x:auto; margin:0;"></pre>
+                    <pre id="custom-config" style="background:rgba(0,0,0,0.32); border:1px solid var(--glass-border); border-radius:var(--radius-sm); padding:0.85rem; font-size:12px; overflow-x:auto; margin:0;"></pre>
                     <button onclick="copyMcpConfig('custom')" style="position:absolute; top:0.5rem; right:0.5rem; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; padding:3px 10px; font-size:11px; cursor:pointer; color:var(--text-muted);" id="copyBtn-custom"><%= t('mcp.copyConfig') || 'Copy' %></button>
                 </div>
             </div>
 
             <!-- Tools + Prompts reference (collapsible) -->
-            <details style="margin-top:1.25rem; border:1px solid var(--border); border-radius:8px;">
+            <details style="margin-top:1.25rem; border:1px solid var(--glass-border); border-radius:var(--radius-sm);">
                 <summary style="padding:0.7rem 1rem; cursor:pointer; font-size:13px; font-weight:600; list-style:none; display:flex; align-items:center; gap:0.5rem;">
                     <i class="ti ti-tools"></i>
                     <%= t('mcp.availableTools') || 'Available Tools' %>
@@ -326,7 +348,7 @@
     </div>
 
     <!-- ==================== WEBHOOKS ==================== -->
-    <div class="card" style="margin-top: 1.5rem;">
+    <div class="card" style="margin-top: 16px;">
         <div class="card-header">
             <h2><i class="ti ti-webhook"></i> <%= t('webhooks.title') || 'Webhooks' %></h2>
         </div>
@@ -369,15 +391,19 @@
                     </div>
                 </div>
 
-                <button type="submit" class="btn btn-primary" style="margin-top: 0.75rem;"><%= t('common.save') %></button>
+                <div class="settings-save-bar">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="ti ti-device-floppy"></i> <%= t('common.save') %>
+                    </button>
+                </div>
             </form>
         </div>
     </div>
 </div>
 
 <!-- ==================== API KEY MODAL ==================== -->
-<div id="apiKeyModal" style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.6); align-items:center; justify-content:center;">
-    <div style="background:var(--bg-secondary, #1a1a1a); border:1px solid var(--border); border-radius:12px; padding:1.5rem; width:100%; max-width:520px; max-height:90vh; overflow-y:auto;">
+<div id="apiKeyModal" class="glass-modal" style="display:none;">
+    <div class="glass-modal-content">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
             <h3 style="margin:0;"><%= t('apiKeys.createTitle') || 'Create API Key' %></h3>
             <button onclick="closeApiKeyModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);">×</button>
@@ -413,15 +439,15 @@
             </div>
             <div style="display:flex; gap:0.75rem; justify-content:flex-end; margin-top:1rem;">
                 <button type="button" class="btn" onclick="closeApiKeyModal()"><%= t('common.cancel') %></button>
-                <button type="submit" class="btn btn-primary" id="akSubmitBtn"><%= t('apiKeys.create') || 'Create' %></button>
+                <button type="submit" class="btn btn-primary" id="akSubmitBtn"><i class="ti ti-plus"></i> <%= t('apiKeys.create') || 'Create' %></button>
             </div>
         </form>
     </div>
 </div>
 
 <!-- ==================== MCP KEY MODAL ==================== -->
-<div id="mcpKeyModal" style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.6); align-items:center; justify-content:center;">
-    <div style="background:var(--bg-secondary, #1a1a1a); border:1px solid var(--border); border-radius:12px; padding:1.5rem; width:100%; max-width:480px; max-height:90vh; overflow-y:auto;">
+<div id="mcpKeyModal" class="glass-modal" style="display:none;">
+    <div class="glass-modal-content" style="max-width:480px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
             <h3 style="margin:0; display:flex; align-items:center; gap:0.5rem;"><i class="ti ti-robot"></i> <%= t('mcp.keyModalTitle') || 'Create MCP API Key' %></h3>
             <button onclick="closeMcpKeyModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);">×</button>
@@ -446,25 +472,25 @@
             </div>
             <div style="display:flex; gap:0.75rem; justify-content:flex-end; margin-top:1rem;">
                 <button type="button" class="btn" onclick="closeMcpKeyModal()"><%= t('common.cancel') %></button>
-                <button type="submit" class="btn btn-primary" id="mcpKeySubmitBtn"><%= t('mcp.createKeyBtn') || 'Create Key' %></button>
+                <button type="submit" class="btn btn-primary" id="mcpKeySubmitBtn"><i class="ti ti-plus"></i> <%= t('mcp.createKeyBtn') || 'Create Key' %></button>
             </div>
         </form>
     </div>
 </div>
 
 <!-- ==================== API KEY REVEAL MODAL ==================== -->
-<div id="apiKeyRevealModal" style="display:none; position:fixed; inset:0; z-index:1001; background:rgba(0,0,0,0.7); align-items:center; justify-content:center;">
-    <div style="background:var(--bg-secondary, #1a1a1a); border:1px solid var(--border); border-radius:12px; padding:1.5rem; width:100%; max-width:500px;">
+<div id="apiKeyRevealModal" class="glass-modal" style="display:none; z-index:1001;">
+    <div class="glass-modal-content" style="max-width:500px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
             <h3 style="margin:0; color:var(--success, #22c55e);"><i class="ti ti-check"></i> <%= t('apiKeys.created') || 'Key Created' %></h3>
             <button onclick="closeRevealModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);">×</button>
         </div>
-        <div style="background:var(--warning-dim, rgba(245,158,11,0.1)); border:1px solid var(--warning, #f59e0b); border-radius:8px; padding:0.75rem; margin-bottom:1rem; font-size:13px; color:var(--warning, #f59e0b);">
+        <div style="background:var(--warning-dim, rgba(245,158,11,0.1)); border:1px solid var(--warning, #f59e0b); border-radius:var(--radius-sm); padding:0.75rem; margin-bottom:1rem; font-size:13px; color:var(--warning, #f59e0b);">
             <i class="ti ti-alert-triangle"></i> <%= t('apiKeys.revealWarning') || 'Copy this key now. It will never be shown again.' %>
         </div>
         <div style="display:flex; gap:0.5rem; margin-bottom:1rem;">
-            <input type="text" id="revealKeyInput" readonly style="flex:1; font-family:monospace; font-size:13px; background:var(--bg-tertiary, #111); border:1px solid var(--border);">
-            <button class="btn btn-primary" onclick="copyRevealKey()"><%= t('apiKeys.copy') || 'Copy' %></button>
+            <input type="text" id="revealKeyInput" readonly style="flex:1; font-family:monospace; font-size:13px;">
+            <button class="btn btn-primary" onclick="copyRevealKey()"><i class="ti ti-copy"></i> <%= t('apiKeys.copy') || 'Copy' %></button>
         </div>
         <button class="btn" style="width:100%;" onclick="closeRevealModal()"><%= t('apiKeys.done') || 'Done, I copied it' %></button>
     </div>

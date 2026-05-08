@@ -14,6 +14,7 @@ const cryptoService = require('../../services/cryptoService');
 const totpService = require('../../services/totpService');
 const webhookService = require('../../services/webhookService');
 const cache = require('../../services/cacheService');
+const hwidDeviceService = require('../../services/hwidDeviceService');
 const { invalidateSettingsCache } = require('../../utils/helpers');
 const config = require('../../../config');
 const logger = require('../../utils/logger');
@@ -52,6 +53,31 @@ router.get('/settings', async (req, res) => {
             settings.backup.s3.secretAccessKey = cryptoService.decryptSafe(settings.backup.s3.secretAccessKey);
         }
 
+        let topHwidUsers = [];
+        try {
+            const cacheKey = 'panel:topHwidUsers';
+            if (cache.isConnected()) {
+                const raw = await cache.redis.get(cacheKey);
+                if (raw) {
+                    topHwidUsers = JSON.parse(raw);
+                }
+            }
+            if (!Array.isArray(topHwidUsers) || topHwidUsers.length === 0) {
+                const rows = await hwidDeviceService.topUsersByDeviceCount(10);
+                topHwidUsers = await Promise.all(
+                    rows.map(async (r) => {
+                        const u = await HyUser.findOne({ userId: r.userId }).select('username').lean();
+                        return { ...r, username: u?.username || '' };
+                    })
+                );
+                if (cache.isConnected() && topHwidUsers.length > 0) {
+                    await cache.redis.setex(cacheKey, 60, JSON.stringify(topHwidUsers));
+                }
+            }
+        } catch (e) {
+            logger.warn(`[Panel] topHwidUsers: ${e.message}`);
+        }
+
         render(res, 'settings', {
             title: res.locals.locales.settings.title,
             page: 'settings',
@@ -61,6 +87,7 @@ router.get('/settings', async (req, res) => {
             apiKeys,
             validScopes: ApiKey.VALID_SCOPES,
             webhookEvents: Object.values(webhookService.EVENTS),
+            topHwidUsers,
             message: req.query.message || null,
             error: req.query.error || null,
         });
@@ -75,27 +102,41 @@ router.post('/settings', async (req, res) => {
     try {
         const { reloadSettings } = require('../../../index');
         
-        const updates = {
-            'loadBalancing.enabled': req.body['loadBalancing.enabled'] === 'on',
-            'loadBalancing.hideOverloaded': req.body['loadBalancing.hideOverloaded'] === 'on',
-            // Device limit
-            'deviceGracePeriod': parseInt(req.body['deviceGracePeriod']) || 15,
-            // Cache TTL
-            'cache.subscriptionTTL': parseInt(req.body['cache.subscriptionTTL']) || 3600,
-            'cache.userTTL': parseInt(req.body['cache.userTTL']) || 900,
-            'cache.onlineSessionsTTL': parseInt(req.body['cache.onlineSessionsTTL']) || 10,
-            'cache.activeNodesTTL': parseInt(req.body['cache.activeNodesTTL']) || 30,
-            // Rate limits
-            'rateLimit.subscriptionPerMinute': parseInt(req.body['rateLimit.subscriptionPerMinute']) || 100,
-            // SSH Pool
-            'sshPool.enabled': req.body['sshPool.enabled'] === 'on',
-            'sshPool.maxIdleTime': parseInt(req.body['sshPool.maxIdleTime']) || 120,
-            'sshPool.connectTimeout': parseInt(req.body['sshPool.connectTimeout']) || 15,
-            'sshPool.keepAliveInterval': parseInt(req.body['sshPool.keepAliveInterval']) || 30,
-            'sshPool.maxRetries': parseInt(req.body['sshPool.maxRetries']) || 2,
-            // Node Auth
-            'nodeAuth.insecure': req.body['nodeAuth.insecure'] === 'on',
+        // Build updates only from fields that the submitted form actually contains.
+        // Each settings card lives in its own <form>, so when the user saves one
+        // card, request body only carries that card's fields. Unconditionally
+        // applying parseInt with `|| default` would silently reset settings from
+        // other cards on every save.
+        const updates = {};
+
+        // Helper: include a setting only when present in the request body.
+        const setIfPresent = (key, parser) => {
+            if (req.body[key] !== undefined) updates[key] = parser(req.body[key]);
         };
+        const setBool = (key) => {
+            if (req.body[key] !== undefined) updates[key] = req.body[key] === 'on';
+        };
+
+        // System tab: load balancing, cache TTLs, SSH pool, node auth.
+        setBool('loadBalancing.enabled');
+        setBool('loadBalancing.hideOverloaded');
+        setIfPresent('cache.subscriptionTTL', v => parseInt(v) || 3600);
+        setIfPresent('cache.userTTL', v => parseInt(v) || 900);
+        setIfPresent('cache.onlineSessionsTTL', v => parseInt(v) || 10);
+        setIfPresent('cache.activeNodesTTL', v => parseInt(v) || 30);
+        setIfPresent('rateLimit.subscriptionPerMinute', v => parseInt(v) || 100);
+        setBool('sshPool.enabled');
+        setIfPresent('sshPool.maxIdleTime', v => parseInt(v) || 120);
+        setIfPresent('sshPool.connectTimeout', v => parseInt(v) || 15);
+        setIfPresent('sshPool.keepAliveInterval', v => parseInt(v) || 30);
+        setIfPresent('sshPool.maxRetries', v => parseInt(v) || 2);
+        setBool('nodeAuth.insecure');
+
+        // Hysteria IP device limit (its own card on the Subscription tab).
+        if (req.body['_hyLimitSettings'] !== undefined) {
+            const grace = parseInt(req.body['deviceGracePeriod'], 10);
+            updates['deviceGracePeriod'] = Number.isFinite(grace) ? Math.min(60, Math.max(1, grace)) : 15;
+        }
         
         // Webhook settings (only when the dedicated webhook form is submitted)
         if (req.body['_webhookSettings'] !== undefined) {
@@ -128,27 +169,61 @@ router.post('/settings', async (req, res) => {
                 .slice(0, 10)
                 .map(b => ({ label: String(b.label).trim(), url: String(b.url).trim(), icon: String(b.icon || '').trim() }));
 
-            // HAPP-specific settings
-            const VALID_PING_TYPES = ['', 'proxy', 'proxy-head', 'tcp', 'icmp'];
-            const rawPingType = req.body['subscription.happ.pingType'] || '';
-            updates['subscription.happ.announce']     = String(req.body['subscription.happ.announce'] || '').trim().slice(0, 200);
-            updates['subscription.happ.hideSettings'] = req.body['subscription.happ.hideSettings'] === 'on';
-            updates['subscription.happ.notifyExpire'] = req.body['subscription.happ.notifyExpire'] === 'on';
-            updates['subscription.happ.alwaysHwid']   = req.body['subscription.happ.alwaysHwid'] === 'on';
-            updates['subscription.happ.pingType']     = VALID_PING_TYPES.includes(rawPingType) ? rawPingType : '';
-            updates['subscription.happ.pingUrl']      = String(req.body['subscription.happ.pingUrl'] || '').trim().slice(0, 500);
-            updates['subscription.happ.colorProfile'] = (() => {
-                const raw = String(req.body['subscription.happ.colorProfile'] || '').trim();
-                if (!raw) return '';
-                if (raw.length > 5120) return '';
-                try {
-                    const parsed = JSON.parse(raw);
-                    if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) return '';
-                    return JSON.stringify(parsed);
-                } catch {
-                    return '';
-                }
-            })();
+            // HAPP-specific settings (only when this request includes any subscription.happ.* field — avoids wiping HAPP when saving the main subscription card alone)
+            const hasHappInBody = Object.keys(req.body).some(k => k.startsWith('subscription.happ.'));
+            if (hasHappInBody) {
+                const VALID_PING_TYPES = ['', 'proxy', 'proxy-head', 'tcp', 'icmp'];
+                const rawPingType = req.body['subscription.happ.pingType'] || '';
+                updates['subscription.happ.announce']     = String(req.body['subscription.happ.announce'] || '').trim().slice(0, 200);
+                updates['subscription.happ.hideSettings'] = req.body['subscription.happ.hideSettings'] === 'on';
+                updates['subscription.happ.notifyExpire'] = req.body['subscription.happ.notifyExpire'] === 'on';
+                updates['subscription.happ.alwaysHwid']   = req.body['subscription.happ.alwaysHwid'] === 'on';
+                updates['subscription.happ.pingType']     = VALID_PING_TYPES.includes(rawPingType) ? rawPingType : '';
+                updates['subscription.happ.pingUrl']      = String(req.body['subscription.happ.pingUrl'] || '').trim().slice(0, 500);
+                updates['subscription.happ.colorProfile'] = (() => {
+                    const raw = String(req.body['subscription.happ.colorProfile'] || '').trim();
+                    if (!raw) return '';
+                    if (raw.length > 5120) return '';
+                    try {
+                        const parsed = JSON.parse(raw);
+                        if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) return '';
+                        return JSON.stringify(parsed);
+                    } catch {
+                        return '';
+                    }
+                })();
+
+                const VALID_HWID_MODES = ['off', 'permissive', 'strict'];
+                const rawHwidMode = String(req.body['subscription.happ.hwid.mode'] || 'off');
+                updates['subscription.happ.hwid.mode'] = VALID_HWID_MODES.includes(rawHwidMode) ? rawHwidMode : 'off';
+                const cleanDays = parseInt(req.body['subscription.happ.hwid.inactiveDeviceCleanupDays'], 10);
+                updates['subscription.happ.hwid.inactiveDeviceCleanupDays'] = Number.isFinite(cleanDays)
+                    ? Math.min(3650, Math.max(7, cleanDays))
+                    : 90;
+                const rl = parseInt(req.body['subscription.happ.hwid.upsertRateLimitPerMinute'], 10);
+                updates['subscription.happ.hwid.upsertRateLimitPerMinute'] = Number.isFinite(rl)
+                    ? Math.min(600, Math.max(1, rl))
+                    : 60;
+                updates['subscription.happ.hwid.maxDevicesAnnounce'] = String(
+                    req.body['subscription.happ.hwid.maxDevicesAnnounce'] || ''
+                ).trim().slice(0, 300);
+                // Multiline soft-block remarks. Each non-empty line becomes a
+                // separate fake server (parseRemarkLines in subscription.js
+                // dedupes and caps per-line length). Here we only normalize
+                // line endings and bound the total payload size to keep
+                // settings docs small.
+                const sanitizeRemark = (raw) => String(raw || '')
+                    .replace(/\r\n?/g, '\n')
+                    .replace(/[ \t]+\n/g, '\n')
+                    .trim()
+                    .slice(0, 1500);
+                updates['subscription.happ.hwid.notSupportedRemark'] = sanitizeRemark(
+                    req.body['subscription.happ.hwid.notSupportedRemark']
+                );
+                updates['subscription.happ.hwid.maxDevicesRemark'] = sanitizeRemark(
+                    req.body['subscription.happ.hwid.maxDevicesRemark']
+                );
+            }
         }
 
         // Routing settings
@@ -196,6 +271,9 @@ router.post('/settings', async (req, res) => {
         await Settings.update(updates);
         
         await invalidateSettingsCache();
+        try {
+            if (cache.isConnected()) await cache.redis.del('panel:topHwidUsers');
+        } catch (_e) { /* ignore */ }
         await reloadSettings();
         
         const sshPool = require('../../services/sshPoolService');

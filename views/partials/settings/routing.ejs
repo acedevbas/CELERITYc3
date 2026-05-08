@@ -9,7 +9,7 @@
             <input type="hidden" name="_routingSettings" value="1">
 
             <%# ======== Master switch ======== %>
-            <div class="form-section" style="margin-bottom:1.5rem;">
+            <div style="margin-bottom: 1.25rem;">
                 <label class="checkbox-label" style="font-size:15px; font-weight:600;">
                     <input type="checkbox" name="routing.enabled" id="routingMasterSwitch"
                            <%= settings?.routing?.enabled ? 'checked' : '' %>
@@ -22,7 +22,7 @@
             <div id="routingBody" style="<%= settings?.routing?.enabled ? '' : 'display:none' %>">
 
                 <%# ======== How it works ======== %>
-                <div class="alert" style="background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:14px 18px; margin-bottom:1.5rem; font-size:13px; line-height:1.7;">
+                <div class="alert" style="background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.2); border-radius:var(--radius-sm); padding:14px 18px; margin-bottom:1.5rem; font-size:13px; line-height:1.7;">
                     <div style="margin-bottom:8px;">
                         <i class="ti ti-info-circle" style="color:var(--accent);"></i>
                         <strong style="color:var(--accent);"><%= t('settings.routingHowItWorks') %></strong>
@@ -31,7 +31,7 @@
                 </div>
 
                 <%# ======== Client support ======== %>
-                <div class="alert" style="background:rgba(34,197,94,0.06); border:1px solid rgba(34,197,94,0.2); border-radius:8px; padding:14px 18px; margin-bottom:1.5rem; font-size:13px; line-height:1.7;">
+                <div class="alert" style="background:rgba(34,197,94,0.06); border:1px solid rgba(34,197,94,0.2); border-radius:var(--radius-sm); padding:14px 18px; margin-bottom:1.5rem; font-size:13px; line-height:1.7;">
                     <div style="margin-bottom:8px;">
                         <i class="ti ti-devices" style="color:var(--success, #22c55e);"></i>
                         <strong style="color:var(--success, #22c55e);"><%= t('settings.routingClientSupport') %></strong>
@@ -135,8 +135,8 @@
 
             </div><%# /routingBody %>
 
-            <div style="display:flex; justify-content:flex-end; margin-top:1.25rem;">
-                <button type="submit" class="btn btn-primary" style="padding:0.75rem 2rem;">
+            <div class="settings-save-bar">
+                <button type="submit" class="btn btn-primary">
                     <i class="ti ti-device-floppy"></i> <%= t('common.save') %>
                 </button>
             </div>
@@ -174,7 +174,7 @@
     position: absolute; top: 8px; right: 8px;
     background: var(--accent); color: #fff;
     font-size: 10px; font-weight: 600; line-height: 1;
-    padding: 3px 6px; border-radius: 8px;
+    padding: 3px 6px; border-radius: var(--radius-xs);
     opacity: 0; transition: opacity 0.2s;
 }
 .preset-card.applied .preset-badge { opacity: 1; }

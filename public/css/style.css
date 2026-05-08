@@ -46,8 +46,13 @@
     --input-bg: var(--bg-primary);
     --border-color: var(--border);
     
-    --radius: 12px;
-    --radius-sm: 8px;
+    /* Unified radii — settings page is the reference (etalon).
+     * --radius     16px : all cards, modals, panels, large surfaces
+     * --radius-sm  10px : buttons, inputs, selects, small cards, pills inside cards
+     * --radius-xs   6px : tiny chips, badges, code chips, micro-tags
+     */
+    --radius: 16px;
+    --radius-sm: 10px;
     --radius-xs: 6px;
     
     --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
@@ -2620,7 +2625,7 @@ html {
     
     /* Cards */
     .card {
-        border-radius: 10px;
+        border-radius: var(--radius);
     }
     
     .card-header {
@@ -2720,36 +2725,49 @@ html {
     }
 }
 
-/* Language Switcher */
+/* Language Switcher — pill capsule (mirrors settings tab bar) */
 .lang-switcher {
     display: flex;
+    align-items: center;
     gap: 4px;
     margin-bottom: 12px;
-    background: var(--bg-tertiary);
     padding: 4px;
-    border-radius: var(--radius-sm);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
+    border-radius: 999px;
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
 }
 
 .lang-btn {
     flex: 1;
-    padding: 6px 12px;
+    padding: 7px 12px;
     text-align: center;
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
+    letter-spacing: 0.04em;
     color: var(--text-secondary);
     text-decoration: none;
-    border-radius: var(--radius-xs);
-    transition: var(--transition);
+    background: transparent;
+    border-radius: 999px;
+    transition: color .2s ease, background .2s ease, transform .15s ease;
 }
 
 .lang-btn:hover {
     color: var(--text-primary);
-    background: var(--bg-hover);
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .lang-btn.active {
-    color: var(--text-primary);
-    background: var(--accent);
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-gradient-end) 100%);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.30),
+                0 1px 0 rgba(255, 255, 255, 0.18) inset,
+                0 -1px 0 rgba(0, 0, 0, 0.25) inset;
+}
+
+.lang-btn:active {
+    transform: scale(0.97);
 }
 
 .radio-group {
@@ -3119,4 +3137,831 @@ p {
     background: var(--accent-glow, rgba(99, 102, 241, 0.12));
     border-color: var(--accent, #6366f1);
     color: var(--accent, #6366f1);
+}
+
+/* ============================================================
+ * Glass surfaces, settings page layout & components
+ * ============================================================ */
+
+:root {
+    /* Frosted surface tokens */
+    --glass-bg:        rgba(24, 24, 27, 0.62);
+    --glass-bg-strong: rgba(24, 24, 27, 0.78);
+    --glass-bg-soft:   rgba(255, 255, 255, 0.025);
+    --glass-border:    rgba(255, 255, 255, 0.08);
+    --glass-border-strong: rgba(255, 255, 255, 0.14);
+    --glass-highlight: rgba(255, 255, 255, 0.06);
+    --glass-shadow:    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+                       0 -1px 0 rgba(0, 0, 0, 0.35) inset,
+                       0 8px 32px rgba(0, 0, 0, 0.32);
+    --glass-shadow-lg: 0 1px 0 rgba(255, 255, 255, 0.06) inset,
+                       0 -1px 0 rgba(0, 0, 0, 0.4) inset,
+                       0 24px 60px rgba(0, 0, 0, 0.45);
+    --glass-blur:      saturate(180%) blur(22px);
+    --glass-blur-sm:   saturate(160%) blur(14px);
+}
+
+/* Generic .glass utility — frosted card with subtle inner highlight */
+.glass {
+    position: relative;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.06) 0%,
+        rgba(255, 255, 255, 0.0) 24%,
+        transparent 100%);
+    border-radius: inherit;
+}
+
+/* Frosted card variant (opt-in via .card-glass) — leaves legacy .card intact */
+.card-glass {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow);
+}
+
+/* Reusable glass modal — overlay + content card */
+.glass-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(8, 8, 10, 0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    align-items: center;
+    justify-content: center;
+}
+
+.glass-modal-content {
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border-strong);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 520px;
+    max-height: 90vh;
+    overflow-y: auto;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow-lg);
+}
+
+/* Topbar: subtle glass */
+.topbar {
+    background: rgba(17, 17, 19, 0.72);
+    border-bottom: 1px solid var(--glass-border);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+/* Mobile header glass */
+.mobile-header {
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+}
+
+/* Sidebar — gentle glassy tint */
+.sidebar {
+    background: linear-gradient(180deg,
+        rgba(17, 17, 19, 0.96) 0%,
+        rgba(15, 16, 27, 0.96) 100%);
+    border-right: 1px solid var(--glass-border);
+}
+
+/* Toast — fully glass */
+.toast {
+    background: rgba(31, 31, 35, 0.78);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border-strong);
+    box-shadow: var(--glass-shadow-lg);
+}
+
+/* ============================================================
+ * SETTINGS PAGE — refined layout & components
+ * ============================================================ */
+
+/* Page wrapper provides subtle ambient gradient (only when used) */
+.settings-page {
+    position: relative;
+}
+
+.settings-page::before {
+    content: '';
+    position: absolute;
+    inset: -120px -120px auto -120px;
+    height: 380px;
+    background:
+        radial-gradient(circle at 18% 22%, rgba(99, 102, 241, 0.22), transparent 38%),
+        radial-gradient(circle at 82% 14%, rgba(168, 85, 247, 0.18), transparent 40%),
+        radial-gradient(circle at 50% 80%, rgba(56, 189, 248, 0.10), transparent 36%);
+    filter: blur(70px);
+    opacity: 0.55;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.settings-page > * {
+    position: relative;
+    z-index: 1;
+}
+
+/* Sticky tab bar (glass pills) — no fill, just sticky positioning */
+.settings-tabbar {
+    position: sticky;
+    top: 73px; /* below topbar */
+    z-index: 30;
+    margin: 0 0 22px 0;
+    padding: 0;
+    background: transparent;
+}
+
+.settings-tabs {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px;
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
+    border-radius: 999px;
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    scrollbar-width: none;
+}
+.settings-tabs::-webkit-scrollbar { display: none; }
+
+.settings-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 18px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    border-radius: 999px;
+    transition: color .2s ease, background .2s ease, transform .15s ease;
+    position: relative;
+}
+
+.settings-tab i {
+    font-size: 16px;
+    opacity: .85;
+}
+
+.settings-tab:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.settings-tab.active {
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-gradient-end) 100%);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35),
+                0 1px 0 rgba(255, 255, 255, 0.18) inset,
+                0 -1px 0 rgba(0, 0, 0, 0.25) inset;
+}
+
+.settings-tab.active i { opacity: 1; }
+
+.settings-tab:active {
+    transform: scale(0.97);
+}
+
+/* Per-tab caption shown above the content */
+.settings-tab-caption {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+    padding: 14px 18px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+}
+
+.settings-tab-caption .stc-icon {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    font-size: 19px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.22), rgba(168,85,247,0.16));
+    color: #c7d2fe;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+.settings-tab-caption .stc-text {
+    min-width: 0;
+}
+
+.settings-tab-caption .stc-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+    margin: 0;
+}
+
+.settings-tab-caption .stc-desc {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin: 2px 0 0;
+    line-height: 1.5;
+}
+
+/* Cards inside settings: frosted surface treatment */
+.settings-page .card,
+.settings-page .card-glass {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+    position: relative;
+    overflow: hidden;
+}
+
+.settings-page .card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.05) 0%,
+        rgba(255, 255, 255, 0.0) 30%,
+        transparent 100%);
+    border-radius: inherit;
+}
+
+.settings-page .card > * {
+    position: relative;
+    z-index: 1;
+}
+
+.settings-page .card-header {
+    background: transparent;
+    border-bottom: 1px solid var(--glass-border);
+    padding: 16px 20px;
+    gap: 12px;
+}
+
+.settings-page .card-header h2 {
+    font-size: 14.5px;
+    letter-spacing: -0.005em;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Section icon chip in card headers (auto applied to first <i>) */
+.settings-page .card-header h2 > i:first-child {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    font-size: 15px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(168,85,247,0.12));
+    color: #c7d2fe;
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    flex-shrink: 0;
+}
+
+.settings-page .card-body {
+    padding: 18px 20px;
+}
+
+/* Hover lift, but gentle */
+.settings-page .card:hover {
+    border-color: var(--glass-border-strong);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset,
+                0 -1px 0 rgba(0,0,0,0.4) inset,
+                0 14px 44px rgba(0, 0, 0, 0.42);
+}
+
+/* Settings-list: compact rows with cleaner separators */
+.settings-list .setting-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px dashed var(--glass-border);
+}
+
+.settings-list .setting-item:last-child {
+    border-bottom: none;
+}
+
+.settings-list .setting-item label {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin: 0;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.settings-list .setting-item span,
+.settings-list .setting-item code {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    text-align: right;
+}
+
+.settings-list .setting-item code {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-xs);
+    padding: 3px 7px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+}
+
+/* Form group hints inside settings — slightly tighter */
+.settings-page .form-group small.hint,
+.settings-page small.hint {
+    color: var(--text-muted);
+    line-height: 1.55;
+    font-size: 12px;
+}
+
+/* Form inputs glass treatment */
+.settings-page .form-group input:not([type="checkbox"]):not([type="radio"]),
+.settings-page .form-group select,
+.settings-page .form-group textarea {
+    background: rgba(10, 10, 11, 0.55);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    padding: 11px 14px;
+    transition: all 0.18s ease;
+}
+
+.settings-page .form-group input:not([type="checkbox"]):not([type="radio"]):focus,
+.settings-page .form-group select:focus,
+.settings-page .form-group textarea:focus {
+    background: rgba(10, 10, 11, 0.8);
+    border-color: rgba(99, 102, 241, 0.55);
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18);
+}
+
+/* Action bar at the bottom of forms — just alignment, no surface */
+.settings-save-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+/* Stat-pill rows: compact key metric chips for the System tab */
+.settings-stat-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.settings-stat {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+    transition: border-color .2s ease, transform .15s ease;
+}
+
+.settings-stat:hover {
+    border-color: var(--glass-border-strong);
+    transform: translateY(-1px);
+}
+
+.settings-stat-icon {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    font-size: 18px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.14));
+    color: #c7d2fe;
+    border: 1px solid rgba(99, 102, 241, 0.22);
+}
+
+.settings-stat-icon.success {
+    background: linear-gradient(135deg, rgba(34,197,94,0.22), rgba(34,197,94,0.10));
+    color: #86efac;
+    border-color: rgba(34, 197, 94, 0.28);
+}
+.settings-stat-icon.warning {
+    background: linear-gradient(135deg, rgba(234,179,8,0.22), rgba(234,179,8,0.10));
+    color: #fde047;
+    border-color: rgba(234, 179, 8, 0.28);
+}
+.settings-stat-icon.info {
+    background: linear-gradient(135deg, rgba(56,189,248,0.22), rgba(56,189,248,0.10));
+    color: #7dd3fc;
+    border-color: rgba(56, 189, 248, 0.28);
+}
+
+.settings-stat-content {
+    min-width: 0;
+    flex: 1;
+}
+
+.settings-stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+    font-weight: 600;
+}
+
+.settings-stat-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-stat-value code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-xs);
+    padding: 2px 6px;
+}
+
+/* Danger zone card */
+.settings-page .card.danger-zone {
+    border-color: rgba(239, 68, 68, 0.32);
+    background: linear-gradient(180deg, rgba(239,68,68,0.06), rgba(24,24,27,0.6));
+}
+
+.settings-page .card.danger-zone .card-header {
+    border-bottom-color: rgba(239, 68, 68, 0.2);
+}
+
+.settings-page .card.danger-zone .card-header h2 {
+    color: #fca5a5;
+}
+
+.settings-page .card.danger-zone .card-header h2 > i:first-child {
+    background: linear-gradient(135deg, rgba(239,68,68,0.24), rgba(239,68,68,0.12));
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.32);
+}
+
+/* Modal glass overhaul (used by API key + MCP modals) */
+.settings-page [id$="Modal"] > div,
+.glass-modal {
+    background: rgba(20, 20, 23, 0.86) !important;
+    border: 1px solid var(--glass-border-strong) !important;
+    border-radius: var(--radius) !important;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow-lg) !important;
+}
+
+/* Backdrop dimmer for modals */
+[id$="Modal"][style*="flex"] {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+/* Code blocks within settings: glass-tinted */
+.settings-page pre,
+.settings-page code:not(.setting-item code):not(.table code) {
+    background: rgba(0, 0, 0, 0.32);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+}
+
+/* Subtle divider helper */
+.settings-divider {
+    height: 1px;
+    margin: 18px 0;
+    background: linear-gradient(90deg, transparent, var(--glass-border-strong), transparent);
+    border: none;
+}
+
+/* Section subhead used inside cards */
+.settings-subsection-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 18px 0 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.settings-subsection-title i {
+    color: var(--accent);
+    font-size: 15px;
+}
+
+.settings-subsection-title:first-child {
+    margin-top: 0;
+}
+
+/* Mobile tweaks for settings */
+@media (max-width: 768px) {
+    .settings-tabbar {
+        top: 60px;
+        margin: 0 0 18px 0;
+        padding: 0;
+    }
+
+    .settings-tabs {
+        width: 100%;
+        border-radius: var(--radius);
+        flex-wrap: nowrap;
+    }
+
+    .settings-tab {
+        padding: 8px 12px;
+        font-size: 12.5px;
+    }
+
+    .settings-tab i { font-size: 15px; }
+
+    .settings-tab-caption {
+        padding: 12px 14px;
+        gap: 10px;
+    }
+
+    .settings-tab-caption .stc-icon {
+        width: 34px;
+        height: 34px;
+        font-size: 17px;
+    }
+
+    .settings-stat-row {
+        grid-template-columns: 1fr;
+    }
+
+    .settings-page .card-body {
+        padding: 14px 16px;
+    }
+
+    .settings-save-bar {
+        flex-wrap: wrap;
+    }
+}
+
+/* Accessibility: focus visible on tabs */
+.settings-tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+}
+
+/* Reduce motion */
+@media (prefers-reduced-motion: reduce) {
+    .settings-tab, .settings-stat, .settings-page .card {
+        transition: none;
+    }
+}
+
+/* ============================================================
+ * Global glass treatment — applies to every page in the panel
+ * Lives at end of file so it overrides earlier flat-color rules.
+ * ============================================================ */
+
+/* Body — subtle ambient gradient under all content */
+body {
+    background:
+        radial-gradient(ellipse at 0% 0%,   rgba(99, 102, 241, 0.08), transparent 45%),
+        radial-gradient(ellipse at 100% 0%, rgba(168, 85, 247, 0.06), transparent 50%),
+        var(--bg-primary);
+    background-attachment: fixed;
+}
+
+/* Cards everywhere become frosted */
+.card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+    position: relative;
+}
+
+.card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.04) 0%,
+        rgba(255, 255, 255, 0.0) 28%,
+        transparent 100%);
+    border-radius: inherit;
+}
+
+.card > * { position: relative; z-index: 1; }
+
+.card-header {
+    background: transparent;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.card:hover {
+    border-color: var(--glass-border-strong);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset,
+                0 -1px 0 rgba(0,0,0,0.4) inset,
+                0 14px 44px rgba(0, 0, 0, 0.42);
+}
+
+/* Stat cards (dashboard) — glass */
+.stat-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+}
+
+.stat-card:hover {
+    border-color: rgba(99, 102, 241, 0.5);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset,
+                0 -1px 0 rgba(0,0,0,0.4) inset,
+                0 18px 50px rgba(99, 102, 241, 0.18);
+}
+
+/* Quick actions — glass tint */
+.quick-action {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+}
+
+.quick-action:hover {
+    background: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.4);
+}
+
+/* Tables — translucent header */
+.table th {
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.table td {
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.025);
+}
+
+/* Search box / filter selects — glass */
+.search-box input,
+.filter-select,
+.logs-search-input {
+    background: rgba(10, 10, 11, 0.55);
+    border-color: var(--glass-border);
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+}
+
+.search-box input:focus,
+.filter-select:focus,
+.logs-search-input:focus {
+    background: rgba(10, 10, 11, 0.8);
+    border-color: rgba(99, 102, 241, 0.55);
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18);
+}
+
+/* Form inputs across the panel — glass */
+.form-group input:not([type="checkbox"]):not([type="radio"]),
+.form-group select,
+.form-group textarea {
+    background: rgba(10, 10, 11, 0.55);
+    border-color: var(--glass-border);
+}
+
+.form-group input:not([type="checkbox"]):not([type="radio"]):focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    background: rgba(10, 10, 11, 0.8);
+    border-color: rgba(99, 102, 241, 0.55);
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18);
+}
+
+/* Pagination buttons — glass */
+.page-btn {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+}
+
+/* Badges — slightly brighter on glass background */
+.badge-secondary {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--glass-border);
+}
+
+/* Generic action-btn (node management etc.) */
+.action-btn {
+    background: var(--glass-bg);
+    border-color: var(--glass-border);
+}
+
+.action-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--glass-border-strong);
+}
+
+/* Mobile node/user cards */
+.mobile-node-card,
+.mobile-user-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+}
+
+/* Section title underline becomes soft */
+.section-title {
+    border-bottom: 1px solid var(--glass-border);
+}
+
+/* Detail item — glass tile */
+.detail-item {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+}
+
+/* IDs / hostnames / IPs in tables: clean monospaced text, no chip background */
+.table code {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+/* Equal-height rows on settings page */
+.settings-page .row {
+    align-items: stretch;
+}
+
+.settings-page .row > [class^="col-"] {
+    display: flex;
+    flex-direction: column;
+}
+
+.settings-page .row > [class^="col-"] > .card {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.settings-page .row > [class^="col-"] > .card > .card-body {
+    flex: 1 1 auto;
 }

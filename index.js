@@ -282,9 +282,11 @@ const subscriptionLimiter = rateLimit({
 
 async function reloadSettings() {
     const Settings = require('./src/models/settingsModel');
+    const hwidDeviceService = require('./src/services/hwidDeviceService');
     const settings = await Settings.get();
     
     cacheService.updateTTL(settings);
+    hwidDeviceService.updateFromSettings(settings);
     
     if (settings.rateLimit) {
         rateLimitSettings.subscriptionPerMinute = settings.rateLimit.subscriptionPerMinute || 100;
@@ -508,6 +510,16 @@ async function startServer() {
         } catch (migErr) {
             logger.warn(`[Migration] Deployment migration warning: ${migErr.message}`);
         }
+
+        const hwidBackfill = await HyUser.updateMany(
+            { hwidMode: { $exists: false } },
+            { $set: { hwidMode: 'inherit', hwidEnforceFrom: null } }
+        );
+        if (hwidBackfill.modifiedCount > 0) {
+            logger.info(`[Migration] HWID defaults applied to ${hwidBackfill.modifiedCount} users`);
+        }
+
+        require('./src/models/userDeviceModel');
 
         await reloadSettings();
         
@@ -848,6 +860,19 @@ function setupCronJobs() {
             await uaStatsService.cleanup();
         } catch (error) {
             logger.error(`[Cron] UA stats flush failed: ${error.message}`);
+        }
+    });
+    
+    // Clean inactive HWID device rows (daily 03:30)
+    cron.schedule('30 3 * * *', async () => {
+        try {
+            const Settings = require('./src/models/settingsModel');
+            const hwidDeviceService = require('./src/services/hwidDeviceService');
+            const settings = await Settings.get();
+            const days = settings?.subscription?.happ?.hwid?.inactiveDeviceCleanupDays ?? 90;
+            await hwidDeviceService.cleanupStale(days);
+        } catch (error) {
+            logger.error(`[Cron] HWID device cleanup failed: ${error.message}`);
         }
     });
     

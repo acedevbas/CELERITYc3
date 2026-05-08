@@ -7,10 +7,19 @@ const ServerGroup = require('../../models/serverGroupModel');
 const cryptoService = require('../../services/cryptoService');
 const syncService = require('../../services/syncService');
 const cache = require('../../services/cacheService');
+const hwidDeviceService = require('../../services/hwidDeviceService');
 const webhookService = require('../../services/webhookService');
 const { render } = require('./helpers');
-const { getActiveGroups, invalidateGroupsCache } = require('../../utils/helpers');
+const { getActiveGroups, invalidateGroupsCache, getSettings } = require('../../utils/helpers');
 const logger = require('../../utils/logger');
+
+// Whether the global HWID feature is enabled (permissive/strict).
+// Controls visibility of HWID UI in user form and detail.
+async function isHwidFeatureEnabled() {
+    const s = await getSettings();
+    const m = s?.subscription?.happ?.hwid?.mode || 'off';
+    return m === 'permissive' || m === 'strict';
+}
 
 // ==================== USERS ====================
 
@@ -105,7 +114,10 @@ router.get('/users', async (req, res) => {
 // GET /users/add - Create user form
 router.get('/users/add', async (req, res) => {
     try {
-        const groups = await getActiveGroups();
+        const [groups, hwidEnabled] = await Promise.all([
+            getActiveGroups(),
+            isHwidFeatureEnabled(),
+        ]);
         render(res, 'user-form', {
             title: res.locals.locales.users.newUser,
             page: 'users',
@@ -113,6 +125,7 @@ router.get('/users/add', async (req, res) => {
             isEdit: false,
             user: null,
             error: null,
+            hwidEnabled,
         });
     } catch (error) {
         logger.error('[Panel] GET /users/add error:', error.message);
@@ -123,9 +136,10 @@ router.get('/users/add', async (req, res) => {
 // GET /users/:userId/edit - Edit user form
 router.get('/users/:userId/edit', async (req, res) => {
     try {
-        const [user, groups] = await Promise.all([
+        const [user, groups, hwidEnabled] = await Promise.all([
             HyUser.findOne({ userId: req.params.userId }).populate('groups', 'name color'),
             getActiveGroups(),
+            isHwidFeatureEnabled(),
         ]);
 
         if (!user) {
@@ -139,6 +153,7 @@ router.get('/users/:userId/edit', async (req, res) => {
             user,
             isEdit: true,
             error: null,
+            hwidEnabled,
         });
     } catch (error) {
         res.status(500).send(`${res.locals.t?.('common.error') || 'Error'}: ${error.message}`);
@@ -189,6 +204,14 @@ router.post('/users', async (req, res) => {
         const trafficLimit = (parseInt(trafficLimitGB, 10) || 0) * 1024 * 1024 * 1024;
         
         const userMaxDevices = parseInt(maxDevices) || 0;
+
+        const hm = req.body.hwidMode;
+        const hwidMode = ['inherit', 'off', 'strict'].includes(String(hm)) ? hm : 'inherit';
+        let hwidEnforceFrom = null;
+        if (req.body.hwidEnforceFrom) {
+            const d = new Date(req.body.hwidEnforceFrom);
+            if (!Number.isNaN(d.getTime())) hwidEnforceFrom = d;
+        }
         
         const newUser = await HyUser.create({
             userId,
@@ -198,6 +221,8 @@ router.post('/users', async (req, res) => {
             enabled: enabled === 'on',
             trafficLimit,
             maxDevices: userMaxDevices,
+            hwidMode,
+            hwidEnforceFrom,
             expireAt,
             nodes: [],
         });
@@ -241,6 +266,8 @@ router.post('/users/:userId', async (req, res) => {
             enabled: enabled === 'on',
             trafficLimit,
             maxDevices: userMaxDevices,
+            hwidMode: ['inherit', 'off', 'strict'].includes(String(req.body.hwidMode)) ? req.body.hwidMode : (user.hwidMode || 'inherit'),
+            hwidEnforceFrom: req.body.hwidEnforceFrom || user.hwidEnforceFrom,
             expireAt: expireAtRaw,
         };
 
@@ -259,6 +286,7 @@ router.post('/users/:userId', async (req, res) => {
                     user: draftUser,
                     isEdit: true,
                     error: res.locals.t('users.expireAtInvalidError'),
+                    hwidEnabled: await isHwidFeatureEnabled(),
                 });
             }
 
@@ -281,6 +309,19 @@ router.post('/users/:userId', async (req, res) => {
             maxDevices: userMaxDevices,
         };
 
+        const hm = req.body.hwidMode;
+        if (['inherit', 'off', 'strict'].includes(String(hm))) {
+            updates.hwidMode = hm;
+        }
+        if (Object.prototype.hasOwnProperty.call(req.body, 'hwidEnforceFrom')) {
+            if (!req.body.hwidEnforceFrom) {
+                updates.hwidEnforceFrom = null;
+            } else {
+                const d = new Date(req.body.hwidEnforceFrom);
+                updates.hwidEnforceFrom = Number.isNaN(d.getTime()) ? null : d;
+            }
+        }
+
         const wasEnabled = user.enabled;
         const nowEnabled = updates.enabled;
 
@@ -292,6 +333,13 @@ router.post('/users/:userId', async (req, res) => {
         }
         await cache.clearDeviceIPs(req.params.userId);
         await cache.invalidateDashboardCounts();
+
+        const limitTouched = updates.maxDevices !== user.maxDevices;
+        const modeChanged = updates.hwidMode !== undefined && updates.hwidMode !== user.hwidMode;
+        const enforceTouched = Object.prototype.hasOwnProperty.call(updates, 'hwidEnforceFrom');
+        if (limitTouched || modeChanged || enforceTouched) {
+            webhookService.clearDeviceLimitNotified(req.params.userId);
+        }
 
         if (wasEnabled !== nowEnabled) {
             const updatedUser = { ...user.toObject(), ...updates };
@@ -320,13 +368,25 @@ router.get('/users/:userId', async (req, res) => {
         const [user, allGroups] = await Promise.all([
             HyUser.findOne({ userId: req.params.userId })
                 .populate('nodes', 'name ip domain active groups')
-                .populate('groups', 'name color'),
+                .populate('groups', 'name color maxDevices'),
             getActiveGroups(),
         ]);
-        
+
         if (!user) {
             return res.redirect('/panel/users');
         }
+
+        const settings = await getSettings();
+        const hwidGlobalMode = settings?.subscription?.happ?.hwid?.mode || 'off';
+        const hwidEnabled = hwidGlobalMode === 'permissive' || hwidGlobalMode === 'strict';
+
+        const [hwidDevices, hwidCount] = hwidEnabled
+            ? await Promise.all([
+                hwidDeviceService.listDevices(user.userId),
+                hwidDeviceService.getDeviceCount(user.userId),
+            ])
+            : [[], 0];
+        const hwidLimit = hwidEnabled ? hwidDeviceService.effectiveDeviceLimit(user.toObject()) : 0;
         
         let effectiveNodes = [];
         const directNodes = (user.nodes || []).filter(n => n && n.active);
@@ -343,6 +403,10 @@ router.get('/users/:userId', async (req, res) => {
             user,
             allGroups,
             effectiveNodes,
+            hwidDevices,
+            hwidCount,
+            hwidLimit,
+            hwidEnabled,
         });
     } catch (error) {
         res.status(500).send('Error: ' + error.message);

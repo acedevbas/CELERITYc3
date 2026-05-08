@@ -179,6 +179,7 @@ Object.assign(locals, {
 
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary">
+                    <i class="ti <%= node?._id ? 'ti-device-floppy' : 'ti-plus' %>"></i>
                     <%= node?._id ? t('nodes.saveNode') : t('nodes.createNode') %>
                 </button>
                 <a href="/panel/nodes" class="btn"><%= t('common.cancel') %></a>

@@ -75,10 +75,26 @@ const TOOLS = {
                         expireAt: { type: 'string', description: 'ISO datetime or null' },
                         maxDevices: { type: 'number', description: 'Max simultaneous devices, 0 = unlimited' },
                         enabled: { type: 'boolean' },
+                        hwidMode: { type: 'string', enum: ['inherit', 'off', 'strict'], description: 'HWID policy override' },
+                        hwidEnforceFrom: { type: ['string', 'null'], description: 'ISO datetime when HWID limit starts enforcing (null = now)' },
                     },
                 },
             },
             required: ['action'],
+        },
+    },
+
+    manage_hwid_devices: {
+        description: 'List or remove HWID devices registered for a user (subscription clients).',
+        requiredScope: 'users:write',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                action: { type: 'string', enum: ['list', 'unlink', 'unlink_all'], description: 'list=enumerate devices, unlink=one hwid, unlink_all=clear' },
+                userId: { type: 'string', description: 'Target userId' },
+                hwid: { type: 'string', description: 'HWID string (required for unlink)' },
+            },
+            required: ['action', 'userId'],
         },
     },
 
@@ -334,6 +350,9 @@ async function callTool(name, args, apiKey, emit) {
 
         case 'manage_user':
             return await usersTools.manageUser(args, emit);
+
+        case 'manage_hwid_devices':
+            return await usersTools.manageHwidDevices(args, emit);
 
         case 'manage_node':
             return await nodesTools.manageNode(args, emit);

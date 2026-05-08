@@ -7,7 +7,7 @@
                     <h2><i class="ti ti-eraser"></i> <%= t('settings.cacheManagement') %></h2>
                 </div>
                 <div class="card-body">
-                    <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 1rem;">
+                    <p style="color: var(--text-muted); font-size: 13px; line-height: 1.6; margin-bottom: 16px;">
                         <%= t('settings.flushCacheDesc') %>
                     </p>
                     <button class="btn btn-warning" onclick="flushCache()">
@@ -15,13 +15,13 @@
                     </button>
                 </div>
             </div>
-            
-            <div class="card mt-2">
+
+            <div class="card" style="margin-top: 16px;">
                 <div class="card-header">
                     <h2><i class="ti ti-chart-bar-off"></i> <%= t('settings.resetStats') || 'Сброс статистики' %></h2>
                 </div>
                 <div class="card-body">
-                    <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 1rem;">
+                    <p style="color: var(--text-muted); font-size: 13px; line-height: 1.6; margin-bottom: 16px;">
                         <%= t('settings.resetStatsDesc') || 'Удалить все исторические данные статистики.' %>
                     </p>
                     <button class="btn btn-warning" onclick="resetStats()">
@@ -30,15 +30,15 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="col-6">
-            <div class="card" style="border-color: var(--danger);">
-                <div class="card-header" style="background: rgba(239, 68, 68, 0.1);">
-                    <h2 style="color: var(--danger);"><i class="ti ti-alert-triangle"></i> <%= t('settings.dangerZone') %></h2>
+            <div class="card danger-zone">
+                <div class="card-header">
+                    <h2><i class="ti ti-alert-triangle"></i> <%= t('settings.dangerZone') %></h2>
                 </div>
                 <div class="card-body">
-                    <h4 style="margin-bottom: 0.5rem;"><%= t('settings.resetTrafficCounter') %></h4>
-                    <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 1rem;">
+                    <h4 style="margin: 0 0 6px; font-size: 14.5px; color: #fecaca;"><%= t('settings.resetTrafficCounter') %></h4>
+                    <p style="color: var(--text-muted); font-size: 13px; line-height: 1.6; margin-bottom: 16px;">
                         <%= t('settings.resetTrafficDesc') %>
                     </p>
                     <button class="btn btn-danger" onclick="resetTraffic()">

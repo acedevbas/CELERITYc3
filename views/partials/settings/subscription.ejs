@@ -8,9 +8,13 @@
             <form method="POST" action="/panel/settings">
                 <input type="hidden" name="_subscriptionSettings" value="1">
 
-                <div class="row" style="margin-bottom: 1rem;">
-                    <div class="col-6">
-                        <div class="form-group">
+                <div class="settings-subsection-title">
+                    <i class="ti ti-photo"></i> <%= t('settings.subBrandingTitle') || 'Брендинг страницы' %>
+                </div>
+
+                <div class="row" style="margin-bottom: 16px;">
+                    <div class="col-8">
+                        <div class="form-group" style="margin-bottom: 14px;">
                             <label><%= t('settings.subLogoUrl') || 'URL логотипа' %></label>
                             <input type="url" name="subscription.logoUrl"
                                    value="<%= settings?.subscription?.logoUrl || '' %>"
@@ -19,32 +23,37 @@
                                    oninput="previewLogo(this.value)">
                             <small class="hint"><%= t('settings.subLogoUrlHint') || 'Ссылка на PNG/SVG/WebP. Оставьте пустым для иконки по умолчанию.' %></small>
                         </div>
-                    </div>
-                    <div class="col-6" style="display: flex; align-items: center; gap: 1rem; padding-top: 0.5rem;">
-                        <div id="logoPreview" style="<%= settings?.subscription?.logoUrl ? '' : 'display:none;' %>">
-                            <img id="logoPreviewImg"
-                                 src="<%= settings?.subscription?.logoUrl || '' %>"
-                                 style="height: 48px; border-radius: 8px; border: 1px solid var(--border); padding: 4px; background: #0a0a0a;"
-                                 onerror="this.style.display='none'">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label><%= t('settings.subPageTitle') || 'Заголовок страницы' %></label>
+                            <input type="text" name="subscription.pageTitle"
+                                   value="<%= settings?.subscription?.pageTitle || '' %>"
+                                   placeholder="<%= t('settings.subPageTitlePlaceholder') %>">
+                            <small class="hint"><%= t('settings.subPageTitleHint') || 'Текст над логотипом. По умолчанию: «Подключение».' %></small>
                         </div>
-                        <div id="logoDefaultPreview" style="color: var(--text-muted); font-size: 13px; <%= settings?.subscription?.logoUrl ? 'display:none;' : '' %>">
-                            <i class="ti ti-rocket" style="font-size: 32px;"></i>
-                            <div style="font-size: 11px; margin-top: 4px;"><%= t('settings.subLogoDefault') %></div>
+                    </div>
+                    <div class="col-4" style="display: flex; align-items: center; justify-content: center;">
+                        <div style="width: 100%; min-height: 130px; display: flex; align-items: center; justify-content: center; padding: 18px; border-radius: var(--radius); background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(168,85,247,0.06)); border: 1px dashed var(--glass-border-strong);">
+                            <div id="logoPreview" style="<%= settings?.subscription?.logoUrl ? '' : 'display:none;' %>">
+                                <img id="logoPreviewImg"
+                                     src="<%= settings?.subscription?.logoUrl || '' %>"
+                                     style="max-height: 80px; max-width: 100%; border-radius: 10px;"
+                                     onerror="this.style.display='none'">
+                            </div>
+                            <div id="logoDefaultPreview" style="text-align: center; color: var(--text-muted); <%= settings?.subscription?.logoUrl ? 'display:none;' : '' %>">
+                                <i class="ti ti-rocket" style="font-size: 38px; opacity: 0.65;"></i>
+                                <div style="font-size: 11.5px; margin-top: 6px;"><%= t('settings.subLogoDefault') %></div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="form-group" style="margin-bottom: 1rem;">
-                    <label><%= t('settings.subPageTitle') || 'Заголовок страницы' %></label>
-                    <input type="text" name="subscription.pageTitle"
-                           value="<%= settings?.subscription?.pageTitle || '' %>"
-                           placeholder="<%= t('settings.subPageTitlePlaceholder') %>">
-                    <small class="hint"><%= t('settings.subPageTitleHint') || 'Текст над логотипом. По умолчанию: «Подключение».' %></small>
+                <hr class="settings-divider">
+
+                <div class="settings-subsection-title">
+                    <i class="ti ti-link"></i> <%= t('settings.subProfileLinksTitle') || 'Hiddify профиль' %>
                 </div>
 
-                <hr style="margin: 1.25rem 0; border-color: var(--border);">
-
-                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 1rem;">
+                <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.55;">
                     <i class="ti ti-info-circle"></i>
                     <%= t('settings.subHiddifyProfileHint') %>
                 </p>
@@ -64,28 +73,25 @@
                                placeholder="https://example.com">
                         <small class="hint"><%= t('settings.subWebPageUrlHint') || 'Кнопка «Открыть веб-страницу» в Hiddify.' %></small>
                     </div>
+                    <div class="form-group">
+                        <label><%= t('settings.subUpdateInterval') || 'Интервал обновления' %></label>
+                        <input type="number" name="subscription.updateInterval"
+                               value="<%= settings?.subscription?.updateInterval ?? 12 %>"
+                               min="1" max="168" step="1">
+                        <small class="hint"><%= t('settings.subUpdateIntervalHint') || 'Как часто клиенты автоматически обновляют подписку (в часах). Отправляется в заголовке Profile-Update-Interval.' %></small>
+                    </div>
                 </div>
 
-                <hr style="margin: 1.25rem 0; border-color: var(--border);">
+                <hr class="settings-divider">
 
-                <div class="form-group">
-                    <label><%= t('settings.subUpdateInterval') || 'Интервал обновления' %></label>
-                    <input type="number" name="subscription.updateInterval"
-                           value="<%= settings?.subscription?.updateInterval ?? 12 %>"
-                           min="1" max="168" step="1"
-                           style="max-width: 120px;">
-                    <small class="hint"><%= t('settings.subUpdateIntervalHint') || 'Как часто клиенты автоматически обновляют подписку (в часах). Отправляется в заголовке Profile-Update-Interval.' %></small>
+                <div class="settings-subsection-title">
+                    <i class="ti ti-grip-horizontal"></i> <%= t('settings.subButtons') || 'Кнопки на странице подписки' %>
+                    <span style="margin-left: auto; font-size: 11.5px; color: var(--text-muted); text-transform: none; letter-spacing: 0; font-weight: 500;" id="subBtnCount"></span>
                 </div>
-
-                <hr style="margin: 1.25rem 0; border-color: var(--border);">
 
                 <%/* Custom buttons section */%>
                 <div class="form-group">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
-                        <label style="margin-bottom: 0;"><%= t('settings.subButtons') || 'Кнопки на странице подписки' %></label>
-                        <span style="font-size: 12px; color: var(--text-muted);" id="subBtnCount"></span>
-                    </div>
-                    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 0.75rem; line-height: 1.5;">
+                    <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.55;">
                         <i class="ti ti-info-circle"></i>
                         <%= t('settings.subButtonsHint') %>
                     </p>
@@ -117,32 +123,32 @@
                     </div>
                 </div>
 
-                <div style="display: flex; justify-content: flex-end; margin-top: 1.25rem;">
-                    <button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem;">
-                        <i class="ti ti-device-floppy"></i> <%= t('common.save') || 'Сохранить' %>
+                <div class="settings-save-bar" style="margin-top: 18px;">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="ti ti-device-floppy"></i> <%= t('common.save') %>
                     </button>
                 </div>
             </form>
 
             <style>
             .sub-btn-row { display: grid; grid-template-columns: 1fr 2fr auto auto; gap: 8px; align-items: center; }
-            .icon-pick-btn { display:flex; align-items:center; justify-content:center; width:38px; height:38px; background:var(--bg-secondary,#1a1a2e); border:1px solid var(--border); border-radius:8px; cursor:pointer; color:var(--text-primary); font-size:18px; flex-shrink:0; transition: border-color .15s; }
-            .icon-pick-btn:hover { border-color: var(--accent); }
-            .icon-picker { position:fixed; z-index:9999; width:280px; background:var(--bg-secondary,#1c1c2e); border:1px solid var(--border); border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.5); padding:10px; display:none; }
+            .icon-pick-btn { display:flex; align-items:center; justify-content:center; width:42px; height:42px; background: rgba(10, 10, 11, 0.55); border:1px solid var(--glass-border); border-radius:10px; cursor:pointer; color:var(--text-primary); font-size:18px; flex-shrink:0; transition: border-color .15s, background .15s; }
+            .icon-pick-btn:hover { border-color: var(--accent); background: rgba(99,102,241,0.10); }
+            .icon-picker { position:fixed; z-index:9999; width:288px; background: rgba(20, 20, 23, 0.92); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border:1px solid var(--glass-border-strong); border-radius:var(--radius); box-shadow: var(--glass-shadow-lg); padding:10px; display:none; }
             .icon-picker.open { display:block; }
-            .icon-picker-search { width:100%; padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-primary); color:var(--text-primary); font-size:13px; margin-bottom:8px; outline:none; }
-            .icon-picker-search:focus { border-color: var(--accent); }
+            .icon-picker-search { width:100%; padding:9px 12px; border:1px solid var(--glass-border); border-radius:10px; background: rgba(10,10,11,0.55); color:var(--text-primary); font-size:13px; margin-bottom:8px; outline:none; }
+            .icon-picker-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,0.18); }
             .icon-picker-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; max-height:210px; overflow-y:auto; }
             .icon-picker-grid::-webkit-scrollbar { width:4px; }
             .icon-picker-grid::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
-            .icon-pick-cell { display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:6px; cursor:pointer; font-size:17px; color:var(--text-muted,#aaa); transition: background .1s, color .1s; }
-            .icon-pick-cell:hover { background:var(--accent); color:#fff; }
-            .tpl-dropdown { display:none; position:absolute; left:0; bottom:calc(100% + 4px); min-width:220px; max-height:320px; overflow-y:auto; background:var(--bg-secondary,#1c1c2e); border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 30px rgba(0,0,0,.4); z-index:100; padding:6px 0; }
+            .icon-pick-cell { display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:var(--radius-sm); cursor:pointer; font-size:17px; color:var(--text-muted,#aaa); transition: background .1s, color .1s; }
+            .icon-pick-cell:hover { background:linear-gradient(135deg, var(--accent), var(--accent-gradient-end)); color:#fff; }
+            .tpl-dropdown { display:none; position:absolute; left:0; bottom:calc(100% + 6px); min-width:240px; max-height:340px; overflow-y:auto; background: rgba(20, 20, 23, 0.92); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border:1px solid var(--glass-border-strong); border-radius:var(--radius); box-shadow: var(--glass-shadow-lg); z-index:100; padding:6px 0; }
             .tpl-dropdown.open { display:block; }
-            .tpl-section { padding:6px 14px 4px; font-size:11px; color:var(--text-muted,#888); text-transform:uppercase; letter-spacing:.04em; }
-            .tpl-item { display:flex; align-items:center; gap:8px; padding:7px 14px; font-size:13px; cursor:pointer; color:var(--text-primary); transition: background .1s; }
-            .tpl-item:hover { background:var(--accent); color:#fff; }
-            .tpl-item i { font-size:16px; width:20px; text-align:center; }
+            .tpl-section { padding:8px 14px 4px; font-size:10.5px; color:var(--text-muted,#888); text-transform:uppercase; letter-spacing:.06em; font-weight: 700; }
+            .tpl-item { display:flex; align-items:center; gap:10px; padding:8px 14px; font-size:13px; cursor:pointer; color:var(--text-primary); transition: background .1s; }
+            .tpl-item:hover { background: rgba(99,102,241,0.16); color:#fff; }
+            .tpl-item i { font-size:16px; width:20px; text-align:center; color: var(--accent); }
             </style>
 
             <script>
@@ -324,7 +330,9 @@
         </div>
     </div>
 
-    <%- include('routing') %>
+    <%- include('hysteria-limit') %>
 
-<%- include('happ') %>
+    <%- include('happ') %>
+
+    <%- include('routing') %>
 </div>

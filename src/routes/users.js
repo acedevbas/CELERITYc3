@@ -6,9 +6,11 @@ const express = require('express');
 const router = express.Router();
 const HyUser = require('../models/hyUserModel');
 const HyNode = require('../models/hyNodeModel');
+const UserDevice = require('../models/userDeviceModel');
 const ServerGroup = require('../models/serverGroupModel');
 const cryptoService = require('../services/cryptoService');
 const cache = require('../services/cacheService');
+const hwidDeviceService = require('../services/hwidDeviceService');
 const logger = require('../utils/logger');
 const { getNodesByGroups } = require('../utils/helpers');
 const { requireScope } = require('../middleware/auth');
@@ -125,7 +127,7 @@ router.get('/', requireScope('users:read'), async (req, res) => {
             .skip((page - 1) * limit)
             .limit(parseInt(limit))
             .populate('nodes', 'name ip')
-            .populate('groups', 'name color');
+            .populate('groups', 'name color maxDevices');
         
         const total = await HyUser.countDocuments(filter);
         
@@ -145,13 +147,89 @@ router.get('/', requireScope('users:read'), async (req, res) => {
 });
 
 /**
+ * GET /users/:userId/devices — HWID devices registered via subscription
+ */
+router.get('/:userId/devices', requireScope('users:read'), async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const user = await HyUser.findOne({ userId }).select('userId').lean();
+        if (!user) {
+            return res.status(404).json({ error: 'Пользователь не найден' });
+        }
+        const devices = await hwidDeviceService.listDevices(userId);
+        const full = await HyUser.findOne({ userId }).populate('groups', 'maxDevices').lean();
+        const limit = hwidDeviceService.effectiveDeviceLimit(full);
+        res.json({
+            userId,
+            count: devices.length,
+            limit,
+            devices,
+        });
+    } catch (error) {
+        logger.error(`[Users API] List HWID devices: ${error.message}`);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * DELETE /users/:userId/devices/:hwid — remove one HWID device
+ */
+router.delete('/:userId/devices/:hwid', requireScope('users:write'), async (req, res) => {
+    try {
+        const { userId, hwid: hwidParam } = req.params;
+        let hwid = hwidParam;
+        try {
+            hwid = decodeURIComponent(hwidParam);
+        } catch (_e) { /* use raw */ }
+
+        const user = await HyUser.findOne({ userId }).select('userId subscriptionToken').lean();
+        if (!user) {
+            return res.status(404).json({ error: 'Пользователь не найден' });
+        }
+
+        const result = await UserDevice.deleteOne({ userId, hwid });
+        if (result.deletedCount === 0) {
+            return res.status(404).json({ error: 'Устройство не найдено' });
+        }
+        await hwidDeviceService.invalidateCountCache(userId);
+        await invalidateUserCache(userId, user.subscriptionToken);
+        webhook.clearDeviceLimitNotified(userId);
+        res.json({ success: true });
+    } catch (error) {
+        logger.error(`[Users API] Delete HWID device: ${error.message}`);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * DELETE /users/:userId/devices — remove all HWID devices for user
+ */
+router.delete('/:userId/devices', requireScope('users:write'), async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const user = await HyUser.findOne({ userId }).select('userId subscriptionToken').lean();
+        if (!user) {
+            return res.status(404).json({ error: 'Пользователь не найден' });
+        }
+        await UserDevice.deleteMany({ userId });
+        await hwidDeviceService.invalidateCountCache(userId);
+        await invalidateUserCache(userId, user.subscriptionToken);
+        webhook.clearDeviceLimitNotified(userId);
+        res.json({ success: true });
+    } catch (error) {
+        logger.error(`[Users API] Delete all HWID devices: ${error.message}`);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /users/:userId - Получить пользователя
  */
 router.get('/:userId', requireScope('users:read'), async (req, res) => {
     try {
         const user = await HyUser.findOne({ userId: req.params.userId })
             .populate('nodes', 'name ip domain port portRange')
-            .populate('groups', 'name color');
+            .populate('groups', 'name color maxDevices');
         
         if (!user) {
             return res.status(404).json({ error: 'Пользователь не найден' });
@@ -251,6 +329,22 @@ router.put('/:userId', requireScope('users:write'), async (req, res) => {
         if (maxDevices !== undefined) {
             updates.maxDevices = maxDevices;
         }
+
+        if (req.body.hwidMode !== undefined) {
+            const hm = String(req.body.hwidMode);
+            if (['inherit', 'off', 'strict'].includes(hm)) {
+                updates.hwidMode = hm;
+            }
+        }
+        if (req.body.hwidEnforceFrom !== undefined) {
+            const raw = req.body.hwidEnforceFrom;
+            if (raw === null || raw === '') {
+                updates.hwidEnforceFrom = null;
+            } else {
+                const d = new Date(raw);
+                updates.hwidEnforceFrom = Number.isNaN(d.getTime()) ? null : d;
+            }
+        }
         
         const updatedUser = await HyUser.findOneAndUpdate(
             { userId: req.params.userId },
@@ -258,11 +352,21 @@ router.put('/:userId', requireScope('users:write'), async (req, res) => {
             { new: true }
         )
         .populate('nodes', 'name ip')
-        .populate('groups', 'name color');
+        .populate('groups', 'name color maxDevices');
         
         // Инвалидируем кэш
         await invalidateUserCache(req.params.userId, user.subscriptionToken);
-        
+
+        const limitTouched = updates.maxDevices !== undefined
+            && updates.maxDevices !== user.maxDevices;
+        const modeRelaxed = updates.hwidMode !== undefined
+            && updates.hwidMode !== user.hwidMode
+            && (updates.hwidMode === 'off' || updates.hwidMode === 'inherit');
+        const enforceDelayed = Object.prototype.hasOwnProperty.call(updates, 'hwidEnforceFrom');
+        if (limitTouched || modeRelaxed || enforceDelayed) {
+            webhook.clearDeviceLimitNotified(req.params.userId);
+        }
+
         logger.info(`[Users API] Updated user ${req.params.userId}`);
 
         webhook.emit(webhook.EVENTS.USER_UPDATED, { userId: req.params.userId, updates });
@@ -285,12 +389,15 @@ router.delete('/:userId', requireScope('users:write'), async (req, res) => {
             return res.status(404).json({ error: 'Пользователь не найден' });
         }
 
+        await UserDevice.deleteMany({ userId: req.params.userId });
+
         // Remove from Xray nodes
         xrayRemoveUser(user.toObject());
 
         // Инвалидируем кэш
         await invalidateUserCache(req.params.userId, user.subscriptionToken);
-        
+        webhook.clearDeviceLimitNotified(req.params.userId);
+
         logger.info(`[Users API] Deleted user ${req.params.userId}`);
         webhook.emit(webhook.EVENTS.USER_DELETED, { userId: req.params.userId });
         

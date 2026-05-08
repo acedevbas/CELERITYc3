@@ -83,6 +83,52 @@
                     </div>
                 </div>
                 
+                <% if (typeof hwidEnabled !== 'undefined' && hwidEnabled) { %>
+                <h3 class="section-title"><%= t('users.hwidDevices') %></h3>
+                <% 
+                    let hwidLimitDisp = '—';
+                    if (typeof hwidLimit !== 'undefined') {
+                        if (hwidLimit < 0) hwidLimitDisp = '∞';
+                        else if (hwidLimit > 0) hwidLimitDisp = String(hwidLimit);
+                        else {
+                            const gl = (user.groups || []).filter(g => g.maxDevices > 0).map(g => g.maxDevices);
+                            hwidLimitDisp = gl.length ? String(Math.min(...gl)) : '—';
+                        }
+                    }
+                    const hwidCnt = typeof hwidCount !== 'undefined' ? hwidCount : 0;
+                %>
+                <p class="hint" style="margin-top:0"><%= t('users.hwidDevicesSummary') %> <strong><%= hwidCnt %> / <%= hwidLimitDisp %></strong></p>
+                <% if (hwidDevices && hwidDevices.length > 0) { %>
+                <div style="overflow-x:auto;">
+                    <table class="table table-sm" id="hwidDeviceTable">
+                        <thead>
+                            <tr>
+                                <th><%= t('users.hwidModel') %></th>
+                                <th>OS</th>
+                                <th><%= t('users.hwidLastSeen') %></th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <% hwidDevices.forEach(function(d) { %>
+                            <tr data-hwid="<%- encodeURIComponent(d.hwid) %>">
+                                <td><code style="font-size:11px"><%= d.deviceModel || '—' %></code></td>
+                                <td><small><%= [d.platform, d.osVersion].filter(Boolean).join(' ') || '—' %></small></td>
+                                <td><small><%= d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString(lang === 'en' ? 'en-US' : 'ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—' %></small></td>
+                                <td><button type="button" class="btn btn-sm btn-danger" onclick="unlinkHwid(this.closest('tr').dataset.hwid)"><%= t('users.unlinkDevice') %></button></td>
+                            </tr>
+                            <% }); %>
+                        </tbody>
+                    </table>
+                </div>
+                <% } else { %>
+                <p class="text-muted"><%= t('users.noHwidDevices') %></p>
+                <% } %>
+                <% if (hwidCnt > 0) { %>
+                <button type="button" class="btn btn-sm btn-secondary mt-1" onclick="unlinkAllHwid()"><%= t('users.unlinkAllHwidDevices') %></button>
+                <% } %>
+                <% } %>
+                
                 <h3 class="section-title"><%= t('users.availableNodes') %> (<%= effectiveNodes?.length || 0 %>)</h3>
                 <div class="nodes-list">
                     <% if (effectiveNodes && effectiveNodes.length > 0) { %>
@@ -163,8 +209,36 @@ const userId = <%- JSON.stringify(user.userId) %>;
 const i18n = {
     error: <%- JSON.stringify(t("common.error")) %>,
     confirmDelete: <%- JSON.stringify(t("users.confirmDelete")) %> + ' ' + userId + '?',
-    linkCopied: <%- JSON.stringify(t("users.linkCopied")) %>
+    linkCopied: <%- JSON.stringify(t("users.linkCopied")) %>,
+    confirmUnlinkHwid: <%- JSON.stringify(t("users.confirmUnlinkHwid")) %>,
+    confirmUnlinkAllHwid: <%- JSON.stringify(t("users.confirmUnlinkAllHwid")) %>,
 };
+
+async function unlinkHwid(hwid) {
+    if (!hwid || !confirm(i18n.confirmUnlinkHwid)) return;
+    const res = await fetch('/api/users/' + encodeURIComponent(userId) + '/devices/' + encodeURIComponent(hwid), {
+        method: 'DELETE',
+        credentials: 'include'
+    });
+    if (res.ok) location.reload();
+    else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || i18n.error);
+    }
+}
+
+async function unlinkAllHwid() {
+    if (!confirm(i18n.confirmUnlinkAllHwid)) return;
+    const res = await fetch('/api/users/' + encodeURIComponent(userId) + '/devices', {
+        method: 'DELETE',
+        credentials: 'include'
+    });
+    if (res.ok) location.reload();
+    else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || i18n.error);
+    }
+}
 
 async function toggleUser(enabled) {
     const res = await fetch(`/api/users/${userId}/${enabled ? 'enable' : 'disable'}`, {

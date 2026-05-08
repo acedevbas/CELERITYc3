@@ -106,6 +106,8 @@ Admin sessions (cookie) bypass scope checks entirely.
                     nodes:             { type: 'array', items: { $ref: '#/components/schemas/NodeRef' } },
                     trafficLimit:      { type: 'integer', example: 10737418240, description: 'Bytes, 0 = unlimited' },
                     maxDevices:        { type: 'integer', example: 3, description: '0 = from group, -1 = unlimited' },
+                    hwidMode:          { type: 'string', enum: ['inherit', 'off', 'strict'], description: 'Override panel HWID mode' },
+                    hwidEnforceFrom:   { type: 'string', format: 'date-time', nullable: true, description: 'Start enforcing HWID limit at this time (optional)' },
                     expireAt:          { type: 'string', format: 'date-time', nullable: true },
                     subscriptionToken: { type: 'string', example: 'abc123def456' },
                     traffic: {
@@ -138,7 +140,33 @@ Admin sessions (cookie) bypass scope checks entirely.
                     enabled:      { type: 'boolean' },
                     groups:       { type: 'array', items: { type: 'string' } },
                     trafficLimit: { type: 'integer' },
+                    maxDevices:   { type: 'integer', description: '0 = from min of groups, -1 = unlimited' },
                     expireAt:     { type: 'string', format: 'date-time', nullable: true },
+                    hwidMode:     { type: 'string', enum: ['inherit', 'off', 'strict'] },
+                    hwidEnforceFrom: { type: 'string', format: 'date-time', nullable: true },
+                },
+            },
+            UserDevice: {
+                type: 'object',
+                properties: {
+                    _id:         { type: 'string' },
+                    userId:      { type: 'string' },
+                    hwid:        { type: 'string' },
+                    platform:    { type: 'string' },
+                    osVersion:   { type: 'string' },
+                    deviceModel: { type: 'string' },
+                    userAgent:   { type: 'string' },
+                    firstSeenAt: { type: 'string', format: 'date-time' },
+                    lastSeenAt:  { type: 'string', format: 'date-time' },
+                },
+            },
+            UserDeviceListResponse: {
+                type: 'object',
+                properties: {
+                    userId:  { type: 'string' },
+                    count:   { type: 'integer' },
+                    limit:   { type: 'integer', description: 'Effective maxDevices for HWID (same rules as auth)' },
+                    devices: { type: 'array', items: { $ref: '#/components/schemas/UserDevice' } },
                 },
             },
             Node: {
@@ -624,6 +652,50 @@ Admin sessions (cookie) bypass scope checks entirely.
                 summary: 'Delete user',
                 responses: {
                     200: { description: 'Deleted', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' } } } } } },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+        },
+
+        '/users/{userId}/devices': {
+            parameters: [{ $ref: '#/components/parameters/userId' }],
+            get: {
+                tags: ['Users'],
+                summary: 'List HWID devices registered for user',
+                responses: {
+                    200: {
+                        description: 'HWID devices',
+                        content: { 'application/json': { schema: { $ref: '#/components/schemas/UserDeviceListResponse' } } },
+                    },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+            delete: {
+                tags: ['Users'],
+                summary: 'Delete all HWID devices for user',
+                responses: {
+                    200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' } } } } } },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+        },
+
+        '/users/{userId}/devices/{hwid}': {
+            parameters: [
+                { $ref: '#/components/parameters/userId' },
+                { name: 'hwid', in: 'path', required: true, schema: { type: 'string' }, description: 'HWID (URL-encoded if needed)' },
+            ],
+            delete: {
+                tags: ['Users'],
+                summary: 'Delete one HWID device',
+                responses: {
+                    200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' } } } } } },
                     401: { $ref: '#/components/responses/Unauthorized' },
                     403: { $ref: '#/components/responses/Forbidden' },
                     404: { $ref: '#/components/responses/NotFound' },

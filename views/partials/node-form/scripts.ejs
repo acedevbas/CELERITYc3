@@ -129,10 +129,11 @@
     color: var(--text-primary);
 }
 .logs-output {
-    background: #1a1a2e;
-    color: #0f0;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--glass-border);
+    color: #4ade80;
     padding: 15px;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     font-family: 'Consolas', 'Monaco', monospace;
     font-size: 12px;
     max-height: 500px;
@@ -252,7 +253,9 @@
 .sni-modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,.6);
+    background: rgba(8, 8, 10, 0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     z-index: 9000;
     display: flex;
     align-items: flex-start;
@@ -261,9 +264,12 @@
     overflow-y: auto;
 }
 .sni-modal-card {
-    background: var(--bg-card, var(--bg-secondary));
-    border: 1px solid var(--border);
+    background: var(--glass-bg-strong, rgba(28, 28, 32, 0.78));
+    border: 1px solid var(--glass-border-strong, rgba(255, 255, 255, 0.1));
     border-radius: var(--radius);
+    backdrop-filter: var(--glass-blur, blur(20px));
+    -webkit-backdrop-filter: var(--glass-blur, blur(20px));
+    box-shadow: var(--glass-shadow-lg, 0 24px 64px rgba(0, 0, 0, 0.5));
     width: min(820px, 100%);
     display: flex;
     flex-direction: column;
@@ -275,7 +281,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 16px 22px 14px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--glass-border, var(--border));
     flex-shrink: 0;
 }
 .sni-modal-header h3 {
