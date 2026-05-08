@@ -240,8 +240,9 @@
                     </div>
                     
                     <div class="mobile-node-actions">
-                        <button class="btn btn-sm" onclick="restartNode('<%= node._id %>')" <%= !node.ssh?.password ? 'disabled' : '' %>><i class="ti ti-refresh"></i> <%= t('nodes.restart') %></button>
-                        <a href="/panel/nodes/<%= node._id %>" class="btn btn-sm" style="flex: 1;"><i class="ti ti-pencil"></i> <%= t('common.edit') %></a>
+                        <button class="btn btn-sm" onclick="restartNode('<%= node._id %>')" <%= !node.ssh?.password ? 'disabled' : '' %> title="<%= t('nodes.restart') %>" aria-label="<%= t('nodes.restart') %>"><i class="ti ti-refresh"></i></button>
+                        <a href="/panel/nodes/<%= node._id %>" class="btn btn-sm" title="<%= t('common.edit') %>" aria-label="<%= t('common.edit') %>"><i class="ti ti-pencil"></i></a>
+                        <button class="btn btn-sm btn-danger" onclick="deleteNode('<%= node._id %>')" title="<%= t('common.delete') %>" aria-label="<%= t('common.delete') %>"><i class="ti ti-trash"></i></button>
                     </div>
                 </div>
             <% }); %>
@@ -252,7 +253,7 @@
 
 <!-- Network Map View (hidden by default, loaded on demand) -->
 <div id="viewNetwork" style="display:none">
-    <link rel="stylesheet" href="/css/network.css">
+    <link rel="stylesheet" href="/css/network.min.css">
     <div class="network-page">
         <div class="network-container">
             <div id="cy" class="cytoscape-canvas"></div>
@@ -635,36 +636,45 @@
     color: var(--warning, #f59e0b);
     background: rgba(245,158,11,0.08);
 }
-/* View tabs */
+/* View tabs — matches .settings-tabs / .filters-bar glass pill */
 .view-tabs {
-    display: flex;
+    display: inline-flex;
+    align-items: center;
     gap: 4px;
-    background: rgba(255,255,255,0.03);
+    padding: 6px;
+    background: var(--glass-bg-strong);
     border: 1px solid var(--glass-border);
     border-radius: 999px;
-    padding: 3px;
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
 }
 .view-tab {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
+    gap: 8px;
+    padding: 9px 18px;
     border: none;
-    background: none;
-    color: var(--text-muted, #64748b);
-    font-size: 13px;
+    background: transparent;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 13.5px;
     font-weight: 500;
     font-family: inherit;
     border-radius: 999px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: color .2s ease, background .2s ease, transform .15s ease;
     white-space: nowrap;
 }
-.view-tab:hover { color: var(--text-primary, #e2e8f0); }
+.view-tab:hover {
+    color: var(--text-primary, #e2e8f0);
+    background: rgba(255, 255, 255, 0.05);
+}
 .view-tab.active {
-    background: linear-gradient(135deg, var(--accent, #6366f1), #7c3aed);
+    background: linear-gradient(135deg, var(--accent, #6366f1) 0%, var(--accent-gradient-end, #7c3aed) 100%);
     color: #fff;
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35),
+                0 1px 0 rgba(255, 255, 255, 0.18) inset,
+                0 -1px 0 rgba(0, 0, 0, 0.25) inset;
 }
 .tab-badge {
     background: rgba(255,255,255,0.15);
@@ -975,7 +985,7 @@ function loadNetworkScripts() {
         'https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js',
         'https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js',
         'https://cdn.jsdelivr.net/npm/cytoscape-edgehandles@4.0.1/cytoscape-edgehandles.min.js',
-        '/js/network.js'
+        '/js/network.min.js'
     ];
 
     let idx = 0;
