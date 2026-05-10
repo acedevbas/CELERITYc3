@@ -2,6 +2,7 @@ const StatsSnapshot = require('../models/statsSnapshotModel');
 const HyNode = require('../models/hyNodeModel');
 const HyUser = require('../models/hyUserModel');
 const cache = require('./cacheService');
+const hostMetrics = require('./hostMetricsService');
 const logger = require('../utils/logger');
 
 let previousTraffic = new Map();
@@ -11,6 +12,7 @@ const CACHE_KEYS = {
     ONLINE: 'stats:online:',
     TRAFFIC: 'stats:traffic:',
     NODES: 'stats:nodes:',
+    HOST: 'stats:host:',
 };
 
 const CACHE_TTL = {
@@ -107,6 +109,13 @@ class StatsService {
                 });
             }
             
+            let host = {};
+            try {
+                host = hostMetrics.getSnapshot();
+            } catch (e) {
+                logger.warn(`[Stats] hostMetrics.getSnapshot failed: ${e.message}`);
+            }
+
             return {
                 online: totalOnline,
                 users: users.total,
@@ -116,6 +125,7 @@ class StatsService {
                 nodesOn: nodesOnline,
                 nodesTotal: nodes.length,
                 nodes: nodeStats,
+                host,
             };
         } catch (error) {
             logger.error(`[Stats] Collect error: ${error.message}`);
@@ -170,6 +180,32 @@ class StatsService {
         return Array.from(map.values());
     }
 
+    _hostGroupStage() {
+        return {
+            avgCpuPct:   { $avg: '$host.cpuPct' },
+            avgLoad1:    { $avg: '$host.load1' },
+            avgMemPct:   { $avg: '$host.memPct' },
+            avgMemUsed:  { $avg: '$host.memUsed' },
+            avgRss:      { $avg: '$host.rss' },
+            avgHeapUsed: { $avg: '$host.heapUsed' },
+            avgRps:      { $avg: '$host.rps' },
+            avgRpm:      { $avg: '$host.rpm' },
+        };
+    }
+
+    _hostFromAgg(data) {
+        return {
+            cpuPct:   Math.round(data.avgCpuPct   || 0),
+            load1:    Number((data.avgLoad1 || 0).toFixed(2)),
+            memPct:   Math.round(data.avgMemPct   || 0),
+            memUsed:  Math.round(data.avgMemUsed  || 0),
+            rss:      Math.round(data.avgRss      || 0),
+            heapUsed: Math.round(data.avgHeapUsed || 0),
+            rps:      Math.round(data.avgRps      || 0),
+            rpm:      Math.round(data.avgRpm      || 0),
+        };
+    }
+
     async saveDailySnapshot() {
         try {
             const currentHour = this.roundToHour(new Date());
@@ -198,7 +234,8 @@ class StatsService {
                         lastActiveUsers: { $last: '$activeUsers' },
                         lastNodesTotal: { $last: '$nodesTotal' },
                         allNodesArrays: { $push: '$nodes' },
-                        count: { $sum: 1 }
+                        count: { $sum: 1 },
+                        ...this._hostGroupStage(),
                     }
                 }
             ]);
@@ -219,6 +256,7 @@ class StatsService {
                     nodesOn: Math.round(data.avgNodesOn),
                     nodesTotal: data.lastNodesTotal,
                     nodes: this._mergeNodeArrays(data.allNodesArrays),
+                    host: this._hostFromAgg(data),
                 });
             }
             
@@ -255,7 +293,8 @@ class StatsService {
                         lastActiveUsers: { $last: '$activeUsers' },
                         lastNodesTotal: { $last: '$nodesTotal' },
                         allNodesArrays: { $push: '$nodes' },
-                        count: { $sum: 1 }
+                        count: { $sum: 1 },
+                        ...this._hostGroupStage(),
                     }
                 }
             ]);
@@ -272,6 +311,7 @@ class StatsService {
                 nodesOn: Math.round(data.avgNodesOn),
                 nodesTotal: data.lastNodesTotal,
                 nodes: this._mergeNodeArrays(data.allNodesArrays),
+                host: this._hostFromAgg(data),
             });
             
             logger.info(`[Stats] Monthly snapshot saved: ${currentDay.toISOString()}`);
@@ -474,6 +514,54 @@ class StatsService {
         return result;
     }
 
+    async getHostChart(period = '24h') {
+        const cacheKey = CACHE_KEYS.HOST + period;
+
+        if (cache.isConnected()) {
+            try {
+                const cached = await cache.redis.get(cacheKey);
+                if (cached) {
+                    return JSON.parse(cached);
+                }
+            } catch (e) {}
+        }
+
+        const { type, startDate, endDate } = this.getPeriodParams(period);
+
+        // Skip nodes[] — chart only needs ts + host.
+        const data = await StatsSnapshot.find({
+            type,
+            ts: { $gte: startDate, $lte: endDate },
+        })
+        .select({ ts: 1, host: 1, _id: 0 })
+        .sort({ ts: 1 })
+        .lean();
+
+        const result = {
+            period,
+            type,
+            labels: data.map(d => d.ts),
+            datasets: {
+                cpuPct:   data.map(d => d.host?.cpuPct   || 0),
+                load1:    data.map(d => d.host?.load1    || 0),
+                memPct:   data.map(d => d.host?.memPct   || 0),
+                memUsed:  data.map(d => d.host?.memUsed  || 0),
+                rss:      data.map(d => d.host?.rss      || 0),
+                heapUsed: data.map(d => d.host?.heapUsed || 0),
+                rps:      data.map(d => d.host?.rps      || 0),
+                rpm:      data.map(d => d.host?.rpm      || 0),
+            },
+        };
+
+        if (cache.isConnected()) {
+            try {
+                await cache.redis.setex(cacheKey, CACHE_TTL.CHARTS, JSON.stringify(result));
+            } catch (e) {}
+        }
+
+        return result;
+    }
+
     async getSummary() {
         const cacheKey = CACHE_KEYS.SUMMARY;
         
@@ -490,7 +578,7 @@ class StatsService {
         
         const latest = await StatsSnapshot.findOne({ type: 'hourly' })
             .sort({ ts: -1 })
-            .select({ online: 1, nodesOn: 1, nodesTotal: 1, users: 1, activeUsers: 1, ts: 1 })
+            .select({ online: 1, nodesOn: 1, nodesTotal: 1, users: 1, activeUsers: 1, ts: 1, host: 1 })
             .lean();
 
         const hourAgo = await StatsSnapshot.findOne({
@@ -514,6 +602,11 @@ class StatsService {
                 nodesTotal: latest?.nodesTotal || 0,
                 users: latest?.users || 0,
                 activeUsers: latest?.activeUsers || 0,
+                cpuPct: latest?.host?.cpuPct || 0,
+                memPct: latest?.host?.memPct || 0,
+                rss: latest?.host?.rss || 0,
+                load1: latest?.host?.load1 || 0,
+                rpm: latest?.host?.rpm || 0,
             },
             trends: {
                 hourly: parseFloat(trend),

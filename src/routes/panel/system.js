@@ -14,7 +14,7 @@ const exec = promisify(require('child_process').exec);
 
 const HyNode = require('../../models/hyNodeModel');
 const cache = require('../../services/cacheService');
-const rpsCounter = require('../../middleware/rpsCounter');
+const hostMetrics = require('../../services/hostMetricsService');
 const config = require('../../../config');
 const logger = require('../../utils/logger');
 const { backupUpload } = require('./helpers');
@@ -66,36 +66,6 @@ async function readLastLogLines(filePath, maxLines) {
     return tail.reverse();
 }
 
-// ─── CPU Sampler ──────────────────────────────────────────────────────────────
-
-let _cpuPercent = 0;
-let _prevCpuTimes = null;
-
-function sampleCpuTimes() {
-    const cpus = os.cpus();
-    let idle = 0, total = 0;
-    for (const cpu of cpus) {
-        const t = cpu.times;
-        idle += t.idle;
-        total += t.user + t.nice + t.sys + t.idle + t.irq;
-    }
-    return { idle, total };
-}
-
-function updateCpuPercent() {
-    const cur = sampleCpuTimes();
-    if (_prevCpuTimes) {
-        const dIdle = cur.idle - _prevCpuTimes.idle;
-        const dTotal = cur.total - _prevCpuTimes.total;
-        _cpuPercent = dTotal > 0 ? Math.min(Math.round((1 - dIdle / dTotal) * 100), 100) : 0;
-    }
-    _prevCpuTimes = cur;
-}
-
-_prevCpuTimes = sampleCpuTimes();
-const _cpuInterval = setInterval(updateCpuPercent, 2000);
-_cpuInterval.unref();
-
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
 // GET /panel/system-stats
@@ -105,14 +75,9 @@ router.get('/system-stats', async (req, res) => {
         const loadAvg = os.loadavg();
         const totalMem = os.totalmem();
         const freeMem = os.freemem();
-        const usedMem = totalMem - freeMem;
         const processMemory = process.memoryUsage();
 
-        const cpuPercent = _cpuPercent;
-
-        const requestStats = rpsCounter.getStats();
-        const rps = requestStats.rps;
-        const rpm = requestStats.rpm;
+        const snap = hostMetrics.getSnapshot();
 
         const cacheStats = await cache.getStats();
 
@@ -124,25 +89,25 @@ router.get('/system-stats', async (req, res) => {
             cpu: {
                 cores: cpus.length,
                 model: cpus[0]?.model || 'Unknown',
-                percent: cpuPercent,
+                percent: snap.cpuPct,
                 load1: loadAvg[0],
                 load5: loadAvg[1],
                 load15: loadAvg[2],
             },
             mem: {
                 total: totalMem,
-                used: usedMem,
+                used: snap.memUsed,
                 free: freeMem,
-                percent: Math.round((usedMem / totalMem) * 100),
+                percent: snap.memPct,
             },
             process: {
                 heapUsed: processMemory.heapUsed,
                 heapTotal: processMemory.heapTotal,
-                rss: processMemory.rss,
+                rss: snap.rss,
             },
             requests: {
-                rps: rps,
-                rpm: rpm,
+                rps: snap.rps,
+                rpm: snap.rpm,
             },
             connections: totalConnections,
             cache: cacheStats,

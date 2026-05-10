@@ -1056,7 +1056,12 @@
     "clientName": "Клиент",
     "uniqueUsers": "уникальных пользователей",
     "percentage": "%",
-    "clientsNoData": "Запросы подписки ещё не зафиксированы"
+    "clientsNoData": "Запросы подписки ещё не зафиксированы",
+    "serverCpu": "Загрузка CPU",
+    "serverLoad": "Load 1м",
+    "serverMemory": "Память",
+    "serverRss": "RSS процесса",
+    "serverRpm": "Запросов в минуту"
   },
   "apiKeys": {
     "title": "API Ключи",

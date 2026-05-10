@@ -9,6 +9,18 @@ const nodeStatSchema = new mongoose.Schema({
     r: { type: Number, default: 0 },          // rx bytes delta since last snapshot
 }, { _id: false });
 
+// Host/process load. Instantaneous for hourly, averaged for daily/monthly.
+const hostStatSchema = new mongoose.Schema({
+    cpuPct:   { type: Number, default: 0 },
+    load1:    { type: Number, default: 0 },
+    memPct:   { type: Number, default: 0 },
+    memUsed:  { type: Number, default: 0 },
+    rss:      { type: Number, default: 0 },
+    heapUsed: { type: Number, default: 0 },
+    rps:      { type: Number, default: 0 },
+    rpm:      { type: Number, default: 0 },
+}, { _id: false });
+
 const statsSnapshotSchema = new mongoose.Schema({
     type: {
         type: String,
@@ -32,7 +44,9 @@ const statsSnapshotSchema = new mongoose.Schema({
     nodesTotal: { type: Number, default: 0 },
     
     nodes: [nodeStatSchema],
-    
+
+    host: { type: hostStatSchema, default: () => ({}) },
+
 }, { 
     timestamps: false,  
     versionKey: false,  

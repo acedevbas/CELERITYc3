@@ -142,6 +142,42 @@
     </div>
 </div>
 
+<!-- Server Load Section -->
+<div class="charts-grid mt-2">
+    <!-- CPU + Load Chart -->
+    <div class="card chart-card">
+        <div class="card-header">
+            <h2><i class="ti ti-cpu"></i> <%= t('stats.serverCpu') %></h2>
+            <div class="chart-legend" id="hostCpuLegend"></div>
+        </div>
+        <div class="card-body chart-body">
+            <canvas id="hostCpuChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Memory + RSS Chart -->
+    <div class="card chart-card">
+        <div class="card-header">
+            <h2><i class="ti ti-database"></i> <%= t('stats.serverMemory') %></h2>
+            <div class="chart-legend" id="hostMemLegend"></div>
+        </div>
+        <div class="card-body chart-body">
+            <canvas id="hostMemChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Requests per minute Chart -->
+<div class="card chart-card chart-card-wide mt-2">
+    <div class="card-header">
+        <h2><i class="ti ti-activity"></i> <%= t('stats.serverRpm') %></h2>
+        <div class="chart-legend" id="hostRpmLegend"></div>
+    </div>
+    <div class="card-body chart-body">
+        <canvas id="hostRpmChart"></canvas>
+    </div>
+</div>
+
 <!-- VPN Clients Section -->
 <div class="card mt-2" id="clientsCard">
     <div class="card-header">
@@ -390,6 +426,11 @@ const i18n = {
     hourChange: <%- JSON.stringify(t('stats.hourChange')) %>,
     clientsUniqueUsers: <%- JSON.stringify(t('stats.uniqueUsers')) %>,
     clientsNoData: <%- JSON.stringify(t('stats.clientsNoData')) %>,
+    serverCpu: <%- JSON.stringify(t('stats.serverCpu')) %>,
+    serverLoad: <%- JSON.stringify(t('stats.serverLoad')) %>,
+    serverMemory: <%- JSON.stringify(t('stats.serverMemory')) %>,
+    serverRss: <%- JSON.stringify(t('stats.serverRss')) %>,
+    serverRpm: <%- JSON.stringify(t('stats.serverRpm')) %>,
 };
 
 // Last fetched nodes data -- stored so metric toggle doesn't require a refetch
@@ -401,6 +442,9 @@ let trafficChart = null;
 let nodesChart = null;
 let nodesTrafficChart = null;
 let clientsChart = null;
+let hostCpuChart = null;
+let hostMemChart = null;
+let hostRpmChart = null;
 
 // Current period
 let currentPeriod = '1h';
@@ -411,6 +455,11 @@ const colors = {
     nodes: { bg: 'rgba(34, 197, 94, 0.2)', border: '#22c55e' },
     upload: { bg: 'rgba(34, 197, 94, 0.3)', border: '#22c55e' },
     download: { bg: 'rgba(59, 130, 246, 0.3)', border: '#3b82f6' },
+    cpu:      { bg: 'rgba(99, 102, 241, 0.15)', border: '#6366f1' },
+    load:     { bg: 'rgba(245, 158, 11, 0.0)',  border: '#f59e0b' },
+    memHost:  { bg: 'rgba(139, 92, 246, 0.15)', border: '#8b5cf6' },
+    memRss:   { bg: 'rgba(20, 184, 166, 0.0)',  border: '#14b8a6' },
+    rpm:      { bg: 'rgba(34, 197, 94, 0.2)',   border: '#22c55e' },
     nodeColors: [
         '#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6',
         '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'
@@ -512,6 +561,96 @@ function initCharts() {
         options: getChartOptions('nodesTraffic')
     });
 
+    // Host CPU + Load1 (dual axis)
+    const hostCpuCtx = document.getElementById('hostCpuChart').getContext('2d');
+    hostCpuChart = new Chart(hostCpuCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: i18n.serverCpu,
+                    data: [],
+                    borderColor: colors.cpu.border,
+                    backgroundColor: colors.cpu.bg,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    yAxisID: 'y',
+                },
+                {
+                    label: i18n.serverLoad,
+                    data: [],
+                    borderColor: colors.load.border,
+                    backgroundColor: 'transparent',
+                    borderDash: [4, 4],
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    yAxisID: 'y1',
+                },
+            ],
+        },
+        options: getHostChartOptions('cpu'),
+    });
+
+    // Host Memory + RSS (dual axis)
+    const hostMemCtx = document.getElementById('hostMemChart').getContext('2d');
+    hostMemChart = new Chart(hostMemCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: i18n.serverMemory,
+                    data: [],
+                    borderColor: colors.memHost.border,
+                    backgroundColor: colors.memHost.bg,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    yAxisID: 'y',
+                },
+                {
+                    label: i18n.serverRss,
+                    data: [],
+                    borderColor: colors.memRss.border,
+                    backgroundColor: 'transparent',
+                    borderDash: [4, 4],
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    yAxisID: 'y1',
+                },
+            ],
+        },
+        options: getHostChartOptions('mem'),
+    });
+
+    // Host RPM
+    const hostRpmCtx = document.getElementById('hostRpmChart').getContext('2d');
+    hostRpmChart = new Chart(hostRpmCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: i18n.serverRpm,
+                data: [],
+                borderColor: colors.rpm.border,
+                backgroundColor: colors.rpm.bg,
+                fill: true,
+                tension: 0.4,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+            }],
+        },
+        options: getChartOptions('online'),
+    });
+
     // VPN Clients Donut Chart
     const clientsCtx = document.getElementById('clientsChart').getContext('2d');
     clientsChart = new Chart(clientsCtx, {
@@ -610,6 +749,39 @@ function getChartOptions(type) {
     return baseOptions;
 }
 
+function getHostChartOptions(type) {
+    const opts = getChartOptions('online');
+    opts.plugins.legend.display = true;
+
+    opts.scales.y = {
+        beginAtZero: true,
+        position: 'left',
+        grid: { color: '#27272a' },
+        ticks: { callback: v => v + '%' },
+        min: 0, max: 100,
+    };
+    opts.scales.y1 = {
+        beginAtZero: true,
+        position: 'right',
+        grid: { drawOnChartArea: false },
+    };
+
+    if (type === 'cpu') {
+        opts.plugins.tooltip.callbacks.label = ctx => {
+            if (ctx.dataset.yAxisID === 'y1') return `${ctx.dataset.label}: ${ctx.raw.toFixed(2)}`;
+            return `${ctx.dataset.label}: ${ctx.raw}%`;
+        };
+    } else if (type === 'mem') {
+        opts.scales.y1.ticks = { callback: v => formatBytes(v) };
+        opts.plugins.tooltip.callbacks.label = ctx => {
+            if (ctx.dataset.yAxisID === 'y1') return `${ctx.dataset.label}: ${formatBytes(ctx.raw)}`;
+            return `${ctx.dataset.label}: ${ctx.raw}%`;
+        };
+    }
+
+    return opts;
+}
+
 // Maps period selector value to days count for the clients API
 function periodToDays(period) {
     if (period === '7d') return 7;
@@ -620,11 +792,12 @@ function periodToDays(period) {
 async function loadData(period) {
     try {
         const days = periodToDays(period);
-        const [onlineData, trafficData, nodesData, clientsData] = await Promise.all([
+        const [onlineData, trafficData, nodesData, clientsData, hostData] = await Promise.all([
             fetch(`/panel/stats/api/online?period=${period}`, { credentials: 'include' }).then(r => r.json()),
             fetch(`/panel/stats/api/traffic?period=${period}`, { credentials: 'include' }).then(r => r.json()),
             fetch(`/panel/stats/api/nodes?period=${period}`, { credentials: 'include' }).then(r => r.json()),
             fetch(`/panel/stats/api/clients?days=${days}`, { credentials: 'include' }).then(r => r.json()),
+            fetch(`/panel/stats/api/host?period=${period}`, { credentials: 'include' }).then(r => r.json()),
         ]);
         
         // Cache nodes response so metric toggle re-renders without a refetch
@@ -635,12 +808,75 @@ async function loadData(period) {
         updateNodesChart(nodesData);
         updateNodesTable(nodesData);
         updateClientsSection(clientsData);
+        updateHostCharts(hostData);
         updateTrend();
         
     } catch (error) {
         console.error('Failed to load stats:', error);
         showToast('Error loading stats', 'error');
     }
+}
+
+function updateHostCharts(data) {
+    if (!data || !data.labels || data.labels.length === 0) return;
+
+    const labels = data.labels.map(l => new Date(l));
+    const ds = data.datasets || {};
+
+    // CPU + Load
+    hostCpuChart.data.labels = labels;
+    hostCpuChart.data.datasets[0].data = ds.cpuPct || [];
+    hostCpuChart.data.datasets[1].data = ds.load1 || [];
+    hostCpuChart.update('none');
+
+    const lastCpu  = (ds.cpuPct || []).slice(-1)[0] ?? 0;
+    const maxCpu   = ds.cpuPct && ds.cpuPct.length ? Math.max(...ds.cpuPct) : 0;
+    const lastLoad = (ds.load1 || []).slice(-1)[0] ?? 0;
+    document.getElementById('hostCpuLegend').innerHTML = `
+        <span class="legend-item">
+            <span class="legend-dot" style="background: ${colors.cpu.border}"></span>
+            ${i18n.serverCpu}: ${lastCpu}%
+        </span>
+        <span class="legend-item" style="color: var(--text-muted)">Max: ${maxCpu}%</span>
+        <span class="legend-item">
+            <span class="legend-dot" style="background: ${colors.load.border}"></span>
+            ${i18n.serverLoad}: ${Number(lastLoad).toFixed(2)}
+        </span>
+    `;
+
+    // Memory + RSS
+    hostMemChart.data.labels = labels;
+    hostMemChart.data.datasets[0].data = ds.memPct || [];
+    hostMemChart.data.datasets[1].data = ds.rss || [];
+    hostMemChart.update('none');
+
+    const lastMem  = (ds.memPct || []).slice(-1)[0] ?? 0;
+    const lastRss  = (ds.rss    || []).slice(-1)[0] ?? 0;
+    document.getElementById('hostMemLegend').innerHTML = `
+        <span class="legend-item">
+            <span class="legend-dot" style="background: ${colors.memHost.border}"></span>
+            ${i18n.serverMemory}: ${lastMem}%
+        </span>
+        <span class="legend-item">
+            <span class="legend-dot" style="background: ${colors.memRss.border}"></span>
+            ${i18n.serverRss}: ${formatBytes(lastRss)}
+        </span>
+    `;
+
+    // RPM
+    hostRpmChart.data.labels = labels;
+    hostRpmChart.data.datasets[0].data = ds.rpm || [];
+    hostRpmChart.update('none');
+
+    const lastRpm = (ds.rpm || []).slice(-1)[0] ?? 0;
+    const maxRpm  = ds.rpm && ds.rpm.length ? Math.max(...ds.rpm) : 0;
+    document.getElementById('hostRpmLegend').innerHTML = `
+        <span class="legend-item">
+            <span class="legend-dot" style="background: ${colors.rpm.border}"></span>
+            ${i18n.serverRpm}: ${lastRpm}
+        </span>
+        <span class="legend-item" style="color: var(--text-muted)">Max: ${maxRpm}</span>
+    `;
 }
 
 function updateOnlineChart(data) {

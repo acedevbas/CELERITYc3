@@ -28,7 +28,12 @@ function countRequest(req, res, next) {
 }
 
 function getStats() {
-    return { rps: rpsCounter, rpm: rpmCounter };
+    // Counters reset lazily on next request; treat expired windows as zero.
+    const now = Date.now();
+    return {
+        rps: (now - lastRpsReset >= 1000)  ? 0 : rpsCounter,
+        rpm: (now - lastRpmReset >= 60000) ? 0 : rpmCounter,
+    };
 }
 
 function reset() {
