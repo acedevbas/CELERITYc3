@@ -1051,6 +1051,17 @@ router.get('/stats/api/nodes', async (req, res) => {
     }
 });
 
+// GET /panel/stats/api/host - Host/process load chart data
+router.get('/stats/api/host', async (req, res) => {
+    try {
+        const period = req.query.period || '24h';
+        const data = await statsService.getHostChart(period);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // POST /panel/stats/cleanup - Manual old data cleanup
 router.post('/stats/cleanup', async (req, res) => {
     try {
