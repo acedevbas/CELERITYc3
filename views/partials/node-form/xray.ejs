@@ -62,9 +62,9 @@
                     <div class="radio-group" role="radiogroup" aria-label="<%= t('nodes.xrayTlsSourceLabel') %>">
                         <label class="radio-row">
                             <input type="radio" name="xray.tlsSource" value="panel" <%= _tlsSource === 'panel' ? 'checked' : '' %> onchange="updateXrayTlsSourceUI()">
+                            <span class="badge badge-success"><%= t('nodes.xrayTlsRecommended') %></span>
                             <span class="radio-label">
                                 <strong><%= t('nodes.xrayTlsSourcePanel') %></strong>
-                                <span class="badge badge-recommended"><%= t('nodes.xrayTlsRecommended') %></span>
                                 <small class="radio-hint"><%= t('nodes.xrayTlsSourcePanelHint') %></small>
                             </span>
                         </label>
@@ -77,9 +77,9 @@
                         </label>
                         <label class="radio-row">
                             <input type="radio" name="xray.tlsSource" value="self-signed" <%= _tlsSource === 'self-signed' ? 'checked' : '' %> onchange="updateXrayTlsSourceUI()">
+                            <span class="badge badge-warning"><%= t('nodes.xrayTlsTesting') %></span>
                             <span class="radio-label">
                                 <strong><%= t('nodes.xrayTlsSourceSelfSigned') %></strong>
-                                <span class="badge badge-warning"><%= t('nodes.xrayTlsTesting') %></span>
                                 <small class="radio-hint"><%= t('nodes.xrayTlsSourceSelfSignedHint') %></small>
                             </span>
                         </label>

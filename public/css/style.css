@@ -4179,10 +4179,10 @@ body {
 /* ─── Xray TLS Source picker (panel/manual/self-signed) ───────────────────── */
 
 .xray-tls-config {
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    border: 0;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    background: var(--bg-elevated, transparent);
 }
 
 .xray-tls-config > .block-label {
@@ -4190,25 +4190,26 @@ body {
     align-items: center;
     gap: 8px;
     font-weight: 600;
-    margin: 0 0 4px;
+    margin: 0 0 6px;
     color: var(--text);
-    font-size: 13px;
+    font-size: 14px;
 }
 
 .xray-tls-config > .hint {
     display: block;
     color: var(--text-muted);
     font-size: 12px;
-    margin: 0 0 10px;
+    margin: 0 0 14px;
     line-height: 1.5;
 }
 
-/* Override the global horizontal .radio-group; force grid of compact cards. */
+/* Override the global .radio-group (horizontal flex). Cards stacked vertically
+   on narrow screens, three columns on wide layouts. */
 .xray-tls-config .radio-group {
     display: grid !important;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 8px;
-    margin: 0 0 10px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+    margin: 0 0 14px;
     flex-wrap: nowrap;
 }
 
@@ -4217,126 +4218,88 @@ body {
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    padding: 10px 12px 10px 34px;
+    padding: 12px 14px;
+    padding-right: 16px;
     border: 1px solid var(--border-light);
     border-radius: var(--radius-xs);
     cursor: pointer;
-    transition: background 120ms ease, border-color 120ms ease;
+    transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
     background: transparent;
     margin: 0;
-    min-height: 0;
 }
 
-/* Custom radio dot (replaces native input). Works in both light and dark
-   themes because it uses currentColor borders + accent fill on :checked. */
-.xray-tls-config .radio-row input[type="radio"] {
+.xray-tls-config .radio-row .badge {
     position: absolute;
-    left: 12px;
-    top: 12px;
-    width: 14px;
-    height: 14px;
-    margin: 0;
-    appearance: none;
-    -webkit-appearance: none;
-    border: 1.5px solid var(--border);
-    border-radius: 50%;
-    background: transparent;
-    cursor: pointer;
-    transition: border-color 120ms ease, background 120ms ease;
-    flex-shrink: 0;
-}
-
-.xray-tls-config .radio-row input[type="radio"]:checked {
-    border-color: var(--accent);
-    background: radial-gradient(circle, var(--accent) 45%, transparent 47%);
-}
-
-.xray-tls-config .radio-row input[type="radio"]:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
+    top: 10px;
+    right: 10px;
+    padding: 2px 8px;
+    font-size: 9px;
+    line-height: 1.4;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .xray-tls-config .radio-row:hover {
+    background: var(--bg-hover, rgba(127, 127, 127, 0.05));
     border-color: var(--border);
-    background: rgba(127, 127, 127, 0.04);
+}
+
+.xray-tls-config .radio-row input[type="radio"] {
+    margin: 3px 0 0;
+    flex-shrink: 0;
+    accent-color: var(--accent);
 }
 
 .xray-tls-config .radio-row:has(input[type="radio"]:checked) {
     border-color: var(--accent);
-    background: rgba(var(--accent-rgb, 79, 156, 249), 0.06);
+    background: rgba(var(--accent-rgb, 79, 156, 249), 0.08);
+    box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
 .xray-tls-config .radio-label {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 4px;
     flex: 1 1 auto;
     min-width: 0;
     line-height: 1.4;
 }
 
 .xray-tls-config .radio-label strong {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    display: block;
     color: var(--text);
     font-size: 13px;
     font-weight: 600;
-    flex-wrap: wrap;
+    padding-right: 90px;
 }
 
 .xray-tls-config .radio-hint {
     display: block;
     color: var(--text-muted);
     font-size: 11.5px;
-    line-height: 1.45;
-}
-
-.xray-tls-config .badge-recommended,
-.xray-tls-config .badge-warning {
-    display: inline-block;
-    border-radius: 4px;
-    padding: 1px 6px;
-    font-size: 9px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
     line-height: 1.5;
-    flex-shrink: 0;
-    border: 0;
 }
 
-.xray-tls-config .badge-recommended {
-    background: rgba(46, 160, 67, 0.18);
-    color: #46c560;
-}
-
-.xray-tls-config .badge-warning {
-    background: rgba(217, 154, 39, 0.18);
-    color: #e0a73a;
-}
-
-/* Sub-blocks (panel info / manual PEM / self-signed warning) — compact info row. */
 .xray-tls-config .info-card {
     display: flex;
     gap: 10px;
     align-items: flex-start;
-    padding: 10px 12px;
+    padding: 12px 14px;
     margin: 0 0 10px;
-    background: rgba(127, 127, 127, 0.04);
+    background: rgba(127, 127, 127, 0.05);
     border: 1px solid var(--border-light);
-    border-left: 3px solid var(--accent);
     border-radius: var(--radius-xs);
-    font-size: 12px;
+    font-size: 13px;
     color: var(--text-muted);
     line-height: 1.5;
 }
 
 .xray-tls-config .info-card > i {
     color: var(--accent);
-    margin-top: 1px;
+    margin-top: 2px;
     flex-shrink: 0;
-    font-size: 15px;
+    font-size: 16px;
 }
 
 .xray-tls-config .info-card > div {
@@ -4346,45 +4309,41 @@ body {
 
 .xray-tls-config .info-card > div > div {
     color: var(--text);
-    margin-bottom: 2px;
-    font-size: 12.5px;
+    margin-bottom: 4px;
 }
 
 .xray-tls-config .info-card > div > small {
     display: block;
     color: var(--text-muted);
-    font-size: 11.5px;
-    line-height: 1.5;
+    font-size: 12px;
 }
 
 .xray-tls-config .info-card-warning {
-    background: rgba(217, 154, 39, 0.06);
-    border-color: rgba(217, 154, 39, 0.25);
-    border-left-color: #e0a73a;
+    background: rgba(217, 154, 39, 0.07);
+    border-color: rgba(217, 154, 39, 0.4);
 }
 
 .xray-tls-config .info-card-warning > i {
-    color: #e0a73a;
+    color: #d99a27;
 }
 
 .xray-tls-config .info-card-warning > div > strong {
     display: block;
-    color: #e0a73a;
-    margin-bottom: 2px;
-    font-size: 12.5px;
+    color: #d99a27;
+    margin-bottom: 4px;
 }
 
 .xray-tls-config .info-card code {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    background: rgba(127, 127, 127, 0.14);
+    background: rgba(127, 127, 127, 0.12);
     padding: 1px 6px;
     border-radius: 3px;
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text);
 }
 
 .xray-tls-config .tls-source-manual .form-group {
-    margin: 0 0 10px;
+    margin: 0 0 12px;
 }
 
 .xray-tls-config .tls-source-manual .form-group:last-child {
@@ -4393,8 +4352,8 @@ body {
 
 .xray-tls-config .tls-source-manual label {
     display: block;
-    margin-bottom: 5px;
-    font-size: 12px;
+    margin-bottom: 6px;
+    font-size: 12.5px;
     font-weight: 600;
     color: var(--text);
 }
@@ -4402,9 +4361,9 @@ body {
 .xray-tls-config .tls-source-manual small {
     display: block;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 11.5px;
     margin-top: 4px;
-    line-height: 1.45;
+    line-height: 1.5;
 }
 
 .pem-textarea {
