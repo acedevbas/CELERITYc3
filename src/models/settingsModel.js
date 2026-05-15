@@ -13,6 +13,9 @@ const settingsSchema = new mongoose.Schema({
     loadBalancing: {
         enabled: { type: Boolean, default: false },
         hideOverloaded: { type: Boolean, default: false },
+        // Hide nodes the health checker marked as offline/error (status-based filter).
+        // Default true: one dead node can break HAPP/v2rayTun/sing-box urltest groups.
+        hideOffline: { type: Boolean, default: true },
     },
     
     deviceGracePeriod: { type: Number, default: 15 },

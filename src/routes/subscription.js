@@ -145,6 +145,17 @@ async function getActiveNodes(user) {
             logger.debug(`[Sub] Filtered out ${beforeFilter - nodes.length} overloaded nodes`);
         }
     }
+
+    // Filter offline/error nodes flagged by the health checker.
+    // Keeps the subscription free of dead servers that stall urltest /
+    // shared DNS resolver in HAPP, v2rayTun, sing-box, Clash, etc.
+    if (lb.hideOffline !== false) {
+        const beforeFilter = nodes.length;
+        nodes = nodes.filter(n => n.status !== 'offline' && n.status !== 'error');
+        if (nodes.length < beforeFilter) {
+            logger.debug(`[Sub] Filtered out ${beforeFilter - nodes.length} offline/error nodes`);
+        }
+    }
     
     // Log node statuses (debug level to reduce overhead)
     if (nodes.length > 0) {

@@ -118,8 +118,16 @@ router.post('/settings', async (req, res) => {
         };
 
         // System tab: load balancing, cache TTLs, SSH pool, node auth.
-        setBool('loadBalancing.enabled');
-        setBool('loadBalancing.hideOverloaded');
+        // The whole tab posts as a single form, so any number input that is
+        // always rendered (cache.subscriptionTTL) being present means this
+        // is a System tab submit. For checkboxes inside that form an absent
+        // key means "unchecked", so force-apply booleans on this branch.
+        const systemTabSubmit = req.body['cache.subscriptionTTL'] !== undefined;
+        if (systemTabSubmit) {
+            updates['loadBalancing.enabled']        = req.body['loadBalancing.enabled']        === 'on';
+            updates['loadBalancing.hideOverloaded'] = req.body['loadBalancing.hideOverloaded'] === 'on';
+            updates['loadBalancing.hideOffline']    = req.body['loadBalancing.hideOffline']    === 'on';
+        }
         setIfPresent('cache.subscriptionTTL', v => parseInt(v) || 3600);
         setIfPresent('cache.userTTL', v => parseInt(v) || 900);
         setIfPresent('cache.onlineSessionsTTL', v => parseInt(v) || 10);
@@ -275,6 +283,12 @@ router.post('/settings', async (req, res) => {
             if (cache.isConnected()) await cache.redis.del('panel:topHwidUsers');
         } catch (_e) { /* ignore */ }
         await reloadSettings();
+
+        // Drop subscription cache so load-balancing toggles take effect now,
+        // not after subscriptionTTL (up to 1 h).
+        if (systemTabSubmit) {
+            await cache.invalidateAllSubscriptions();
+        }
         
         const sshPool = require('../../services/sshPoolService');
         await sshPool.reloadSettings();
