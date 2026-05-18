@@ -18,7 +18,8 @@ Management API for [C³ CELERITY](https://github.com/ClickDevTech/hysteria-panel
 
 ## Authentication
 
-All \`/api/*\` endpoints (except \`/api/auth\` and \`/api/files\`) require authentication via an **API key**.
+Protected \`/api/*\` endpoints require authentication via an **API key** or an admin session cookie.
+\`/api/auth\`, \`/api/files\`, \`/api/info\`, \`/api/login\`, \`/api/login/totp\`, and \`/api/logout\` do not require an API key.
 
 Create keys in: **Panel → Settings → Security → API Keys**
 
@@ -40,6 +41,7 @@ Authorization: Bearer ck_your_key_here
 | \`nodes:write\` | Create / update / delete / sync nodes |
 | \`stats:read\` | Stats and groups |
 | \`sync:write\` | Trigger sync, kick users |
+| \`mcp:enabled\` | MCP JSON-RPC endpoint |
 
 Admin sessions (cookie) bypass scope checks entirely.
         `.trim(),
@@ -348,6 +350,79 @@ Admin sessions (cookie) bypass scope checks entirely.
                     lastSync: { type: 'string', format: 'date-time', nullable: true },
                 },
             },
+            Success: {
+                type: 'object',
+                properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string' },
+                },
+            },
+            LoginResult: {
+                type: 'object',
+                properties: {
+                    success: { type: 'boolean', example: true },
+                    username: { type: 'string', example: 'admin' },
+                    requiresTwoFactor: { type: 'boolean', example: false },
+                    message: { type: 'string' },
+                },
+            },
+            SubscriptionInfo: {
+                type: 'object',
+                properties: {
+                    enabled: { type: 'boolean' },
+                    groups: { type: 'array', items: { type: 'object' } },
+                    traffic: {
+                        type: 'object',
+                        properties: {
+                            used: { type: 'integer', description: 'Bytes used' },
+                            limit: { type: 'integer', description: 'Bytes, 0 = unlimited' },
+                        },
+                    },
+                    expire: { type: 'string', format: 'date-time', nullable: true },
+                    servers: { type: 'integer' },
+                },
+            },
+            CascadeLink: {
+                type: 'object',
+                properties: {
+                    _id: { type: 'string' },
+                    name: { type: 'string', example: 'Portal to Bridge' },
+                    mode: { type: 'string', enum: ['reverse', 'forward'], example: 'reverse' },
+                    portalNode: { oneOf: [{ type: 'string' }, { $ref: '#/components/schemas/NodeRef' }] },
+                    bridgeNode: { oneOf: [{ type: 'string' }, { $ref: '#/components/schemas/NodeRef' }] },
+                    tunnelUuid: { type: 'string', format: 'uuid' },
+                    tunnelPort: { type: 'integer', example: 10086 },
+                    tunnelDomain: { type: 'string', example: 'reverse.tunnel.internal' },
+                    tunnelProtocol: { type: 'string', enum: ['vless', 'vmess'] },
+                    tunnelSecurity: { type: 'string', enum: ['none', 'tls', 'reality'] },
+                    tunnelTransport: { type: 'string', enum: ['tcp', 'ws', 'grpc', 'xhttp', 'splithttp'] },
+                    active: { type: 'boolean' },
+                    status: { type: 'string', enum: ['pending', 'deployed', 'online', 'offline', 'error'] },
+                    lastError: { type: 'string' },
+                    lastHealthCheck: { type: 'string', format: 'date-time', nullable: true },
+                    latencyMs: { type: 'integer', nullable: true },
+                    geoRouting: { type: 'object' },
+                },
+            },
+            JsonRpcRequest: {
+                type: 'object',
+                required: ['jsonrpc', 'method'],
+                properties: {
+                    jsonrpc: { type: 'string', example: '2.0' },
+                    id: { nullable: true, oneOf: [{ type: 'string' }, { type: 'integer' }] },
+                    method: { type: 'string', example: 'tools/list' },
+                    params: { type: 'object' },
+                },
+            },
+            JsonRpcResponse: {
+                type: 'object',
+                properties: {
+                    jsonrpc: { type: 'string', example: '2.0' },
+                    id: { nullable: true, oneOf: [{ type: 'string' }, { type: 'integer' }] },
+                    result: { type: 'object' },
+                    error: { type: 'object' },
+                },
+            },
         },
 
         responses: {
@@ -397,9 +472,12 @@ Admin sessions (cookie) bypass scope checks entirely.
     ],
 
     tags: [
+        { name: 'Auth',   description: 'Admin session login/logout and node HTTP auth' },
         { name: 'Stats',  description: 'Panel statistics and server groups' },
         { name: 'Users',  description: 'User management — scope: `users:read` / `users:write`' },
         { name: 'Nodes',  description: 'Node management — scope: `nodes:read` / `nodes:write`' },
+        { name: 'Cascade', description: 'Cascade tunnel management — scope: `nodes:read` / `nodes:write`' },
+        { name: 'MCP',    description: 'Model Context Protocol endpoint — scope: `mcp:enabled`' },
         { name: 'Sync',   description: 'Synchronization and user kicking — scope: `sync:write`' },
         { name: 'Public', description: 'Public endpoints — no authentication required' },
     ],
@@ -408,9 +486,80 @@ Admin sessions (cookie) bypass scope checks entirely.
 
         // ── Public ─────────────────────────────────────────────────────────────
 
+        '/login': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Create admin session',
+                description: 'Authenticates an admin by username/password. If TOTP is enabled, returns 202 and requires `/login/totp` with the same cookie session.',
+                security: [],
+                requestBody: {
+                    required: true,
+                    content: {
+                        'application/json': {
+                            schema: {
+                                type: 'object',
+                                required: ['username', 'password'],
+                                properties: {
+                                    username: { type: 'string', example: 'admin' },
+                                    password: { type: 'string', format: 'password' },
+                                },
+                            },
+                        },
+                    },
+                },
+                responses: {
+                    200: { description: 'Authenticated', content: { 'application/json': { schema: { $ref: '#/components/schemas/LoginResult' } } } },
+                    202: { description: 'Two-factor verification required', content: { 'application/json': { schema: { $ref: '#/components/schemas/LoginResult' } } } },
+                    400: { $ref: '#/components/responses/Unauthorized' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    429: { $ref: '#/components/responses/RateLimited' },
+                },
+            },
+        },
+
+        '/login/totp': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Complete admin login with TOTP',
+                description: 'Completes a pending `/login` flow for admins with two-factor authentication enabled.',
+                security: [],
+                requestBody: {
+                    required: true,
+                    content: {
+                        'application/json': {
+                            schema: {
+                                type: 'object',
+                                required: ['token'],
+                                properties: {
+                                    token: { type: 'string', example: '123456' },
+                                },
+                            },
+                        },
+                    },
+                },
+                responses: {
+                    200: { description: 'Authenticated', content: { 'application/json': { schema: { $ref: '#/components/schemas/LoginResult' } } } },
+                    400: { $ref: '#/components/responses/Unauthorized' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    429: { $ref: '#/components/responses/RateLimited' },
+                },
+            },
+        },
+
+        '/logout': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Destroy admin session',
+                security: [],
+                responses: {
+                    200: { description: 'Logged out', content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } } },
+                },
+            },
+        },
+
         '/auth': {
             post: {
-                tags: ['Public'],
+                tags: ['Auth'],
                 summary: 'Validate user on node connection',
                 description: 'Called by Hysteria nodes to authenticate clients. No API key required.',
                 security: [],
@@ -452,7 +601,7 @@ Admin sessions (cookie) bypass scope checks entirely.
             get: {
                 tags: ['Public'],
                 summary: 'Get subscription config',
-                description: 'Auto-detects format from User-Agent. Returns Clash YAML, Sing-box JSON, or URI list.',
+                description: 'Serves a browser HTML page when opened in a browser without `format`; otherwise auto-detects app format from User-Agent and returns subscription content. HAPP-specific routing/HWID headers may be included.',
                 security: [],
                 parameters: [
                     {
@@ -465,13 +614,16 @@ Admin sessions (cookie) bypass scope checks entirely.
                     {
                         name: 'format',
                         in: 'query',
-                        schema: { type: 'string', enum: ['clash', 'singbox', 'uri'] },
+                        schema: { type: 'string', enum: ['clash', 'yaml', 'singbox', 'json', 'v2ray-json', 'shadowrocket', 'uri', 'raw'] },
                         description: 'Force output format (overrides User-Agent detection)',
                     },
                 ],
                 responses: {
-                    200: { description: 'Subscription config (Clash YAML / Sing-box JSON / URI list)' },
+                    200: { description: 'Subscription config or browser HTML page' },
+                    403: { description: 'Subscription disabled, expired, traffic limit reached, or HWID soft-block response' },
                     404: { description: 'Token not found' },
+                    429: { description: 'Subscription rate limit exceeded' },
+                    503: { description: 'No servers available' },
                 },
             },
         },
@@ -495,17 +647,7 @@ Admin sessions (cookie) bypass scope checks entirely.
                         description: 'Subscription info',
                         content: {
                             'application/json': {
-                                schema: {
-                                    type: 'object',
-                                    properties: {
-                                        userId:       { type: 'string' },
-                                        username:     { type: 'string' },
-                                        enabled:      { type: 'boolean' },
-                                        trafficLimit: { type: 'integer', description: 'Bytes, 0 = unlimited' },
-                                        trafficUsed:  { type: 'integer', description: 'Bytes used' },
-                                        expireAt:     { type: 'string', format: 'date-time', nullable: true },
-                                    },
-                                },
+                                schema: { $ref: '#/components/schemas/SubscriptionInfo' },
                             },
                         },
                     },
@@ -545,10 +687,7 @@ Admin sessions (cookie) bypass scope checks entirely.
                         description: 'Array of groups',
                         content: {
                             'application/json': {
-                                schema: {
-                                    type: 'array',
-                                    items: { $ref: '#/components/schemas/GroupRef' },
-                                },
+                                schema: { type: 'array', items: { type: 'object', properties: { _id: { type: 'string' }, name: { type: 'string' } } } },
                             },
                         },
                     },
@@ -776,6 +915,45 @@ Admin sessions (cookie) bypass scope checks entirely.
             },
         },
 
+        '/users/sync-from-main': {
+            post: {
+                tags: ['Users'],
+                summary: 'Bulk sync users from external source',
+                description: 'Creates or updates users from an external/main database payload.',
+                requestBody: {
+                    required: true,
+                    content: {
+                        'application/json': {
+                            schema: {
+                                type: 'object',
+                                required: ['users'],
+                                properties: {
+                                    users: {
+                                        type: 'array',
+                                        items: {
+                                            type: 'object',
+                                            properties: {
+                                                userId: { type: 'string' },
+                                                username: { type: 'string' },
+                                                enabled: { type: 'boolean' },
+                                                groups: { type: 'array', items: { type: 'string' } },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                responses: {
+                    200: { description: 'Sync result', content: { 'application/json': { schema: { type: 'object', properties: { created: { type: 'integer' }, updated: { type: 'integer' }, errors: { type: 'integer' } } } } } },
+                    400: { description: '`users` must be an array' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                },
+            },
+        },
+
         // ── Nodes ──────────────────────────────────────────────────────────────
 
         '/nodes': {
@@ -820,6 +998,25 @@ Admin sessions (cookie) bypass scope checks entirely.
                 },
                 responses: {
                     201: { description: 'Created node', content: { 'application/json': { schema: { $ref: '#/components/schemas/Node' } } } },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                },
+            },
+        },
+
+        '/nodes/check-ip': {
+            get: {
+                tags: ['Nodes'],
+                summary: 'Check sibling nodes by IP',
+                description: 'Returns protocol sibling nodes for a given IP address. Used by the UI when adding Hysteria/Xray nodes on the same host.',
+                parameters: [
+                    { name: 'ip', in: 'query', required: true, schema: { type: 'string' }, description: 'Node IP address' },
+                ],
+                responses: {
+                    200: {
+                        description: 'Matching nodes',
+                        content: { 'application/json': { schema: { type: 'object', properties: { nodes: { type: 'array', items: { type: 'object', properties: { _id: { type: 'string' }, type: { type: 'string', enum: ['hysteria', 'xray'] }, name: { type: 'string' } } } } } } } },
+                    },
                     401: { $ref: '#/components/responses/Unauthorized' },
                     403: { $ref: '#/components/responses/Forbidden' },
                 },
@@ -871,8 +1068,8 @@ Admin sessions (cookie) bypass scope checks entirely.
             parameters: [{ $ref: '#/components/parameters/nodeId' }],
             get: {
                 tags: ['Nodes'],
-                summary: 'Get node live status',
-                description: 'Queries the node Stats API directly for current online count.',
+                summary: 'Get stored node status',
+                description: 'Returns the status currently stored in the panel database.',
                 responses: {
                     200: {
                         description: 'Node status',
@@ -884,6 +1081,7 @@ Admin sessions (cookie) bypass scope checks entirely.
                                         status:      { type: 'string', enum: ['online', 'offline', 'error'] },
                                         onlineUsers: { type: 'integer' },
                                         lastError:   { type: 'string' },
+                                        lastSync:    { type: 'string', format: 'date-time', nullable: true },
                                     },
                                 },
                             },
@@ -892,6 +1090,38 @@ Admin sessions (cookie) bypass scope checks entirely.
                     401: { $ref: '#/components/responses/Unauthorized' },
                     403: { $ref: '#/components/responses/Forbidden' },
                     404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+        },
+
+        '/nodes/{id}/reset-status': {
+            parameters: [{ $ref: '#/components/parameters/nodeId' }],
+            post: {
+                tags: ['Nodes'],
+                summary: 'Reset node status',
+                description: 'Marks a node as online and clears the last error/health failure counter.',
+                responses: {
+                    200: { description: 'Status reset', content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } } },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+        },
+
+        '/nodes/{id}/agent-info': {
+            parameters: [{ $ref: '#/components/parameters/nodeId' }],
+            get: {
+                tags: ['Nodes'],
+                summary: 'Get Xray agent info',
+                description: 'Fetches live info from the CC Agent for an Xray node.',
+                responses: {
+                    200: { description: 'Agent info', content: { 'application/json': { schema: { type: 'object' } } } },
+                    400: { description: 'Node is not an Xray node' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                    502: { description: 'Agent request failed' },
                 },
             },
         },
@@ -1016,6 +1246,359 @@ Set your HTTP client timeout to at least **3 minutes**.
             },
         },
 
+        '/nodes/{id}/groups': {
+            parameters: [{ $ref: '#/components/parameters/nodeId' }],
+            post: {
+                tags: ['Nodes'],
+                summary: 'Add node to groups',
+                requestBody: {
+                    required: true,
+                    content: { 'application/json': { schema: { type: 'object', required: ['groups'], properties: { groups: { type: 'array', items: { type: 'string' } } } } } },
+                },
+                responses: {
+                    200: { description: 'Updated node', content: { 'application/json': { schema: { $ref: '#/components/schemas/Node' } } } },
+                    400: { description: '`groups` must be an array' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+        },
+
+        '/nodes/{id}/groups/{groupId}': {
+            parameters: [
+                { $ref: '#/components/parameters/nodeId' },
+                { name: 'groupId', in: 'path', required: true, schema: { type: 'string' }, description: 'Group ObjectId' },
+            ],
+            delete: {
+                tags: ['Nodes'],
+                summary: 'Remove node from group',
+                responses: {
+                    200: { description: 'Updated node', content: { 'application/json': { schema: { $ref: '#/components/schemas/Node' } } } },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+        },
+
+        '/nodes/{id}/setup-port-hopping': {
+            parameters: [{ $ref: '#/components/parameters/nodeId' }],
+            post: {
+                tags: ['Nodes'],
+                summary: 'Configure port hopping',
+                description: 'Applies iptables/NAT port-hopping rules on the node via SSH.',
+                responses: {
+                    200: { description: 'Configured', content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } } },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                    500: { description: 'Failed to configure port hopping' },
+                },
+            },
+        },
+
+        '/nodes/{id}/update-config': {
+            parameters: [{ $ref: '#/components/parameters/nodeId' }],
+            post: {
+                tags: ['Nodes'],
+                summary: 'Push generated config to node',
+                description: 'Regenerates and uploads the node config via SSH/agent.',
+                responses: {
+                    200: { description: 'Config updated', content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } } },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                    500: { description: 'Failed to update config' },
+                },
+            },
+        },
+
+        '/nodes/{id}/generate-xray-keys': {
+            parameters: [{ $ref: '#/components/parameters/nodeId' }],
+            post: {
+                tags: ['Nodes'],
+                summary: 'Generate Xray REALITY keys',
+                description: 'Generates x25519 keys on an Xray node via SSH and stores them on the node record.',
+                responses: {
+                    200: { description: 'Generated keys', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, privateKey: { type: 'string' }, publicKey: { type: 'string' } } } } } },
+                    400: { description: 'Node is not Xray or SSH credentials are missing' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+        },
+
+        // ── Cascade ────────────────────────────────────────────────────────────
+
+        '/cascade/links': {
+            get: {
+                tags: ['Cascade'],
+                summary: 'List cascade links',
+                parameters: [
+                    { name: 'active', in: 'query', schema: { type: 'boolean' } },
+                    { name: 'status', in: 'query', schema: { type: 'string', enum: ['pending', 'deployed', 'online', 'offline', 'error'] } },
+                    { name: 'nodeId', in: 'query', schema: { type: 'string' }, description: 'Filter links that touch this node' },
+                ],
+                responses: {
+                    200: { description: 'Cascade links', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/CascadeLink' } } } } },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                },
+            },
+            post: {
+                tags: ['Cascade'],
+                summary: 'Create cascade link',
+                requestBody: {
+                    required: true,
+                    content: {
+                        'application/json': {
+                            schema: {
+                                type: 'object',
+                                required: ['name', 'portalNodeId', 'bridgeNodeId'],
+                                properties: {
+                                    name: { type: 'string' },
+                                    portalNodeId: { type: 'string' },
+                                    bridgeNodeId: { type: 'string' },
+                                    mode: { type: 'string', enum: ['reverse', 'forward'], default: 'reverse' },
+                                    tunnelPort: { type: 'integer', default: 10086 },
+                                    tunnelProtocol: { type: 'string', enum: ['vless', 'vmess'], default: 'vless' },
+                                    tunnelSecurity: { type: 'string', enum: ['none', 'tls', 'reality'], default: 'none' },
+                                    tunnelTransport: { type: 'string', enum: ['tcp', 'ws', 'grpc', 'xhttp', 'splithttp'], default: 'tcp' },
+                                    autoDeploy: { type: 'boolean', description: 'Deploy chain after creation' },
+                                },
+                            },
+                        },
+                    },
+                },
+                responses: {
+                    201: { description: 'Created link', content: { 'application/json': { schema: { $ref: '#/components/schemas/CascadeLink' } } } },
+                    400: { description: 'Invalid topology or tunnel settings' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+        },
+
+        '/cascade/links/{id}': {
+            parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Cascade link ObjectId' }],
+            get: {
+                tags: ['Cascade'],
+                summary: 'Get cascade link',
+                responses: {
+                    200: { description: 'Cascade link', content: { 'application/json': { schema: { $ref: '#/components/schemas/CascadeLink' } } } },
+                    400: { description: 'Invalid link ID' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+            put: {
+                tags: ['Cascade'],
+                summary: 'Update cascade link',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } },
+                responses: {
+                    200: { description: 'Updated link', content: { 'application/json': { schema: { $ref: '#/components/schemas/CascadeLink' } } } },
+                    400: { description: 'Invalid link settings' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+            delete: {
+                tags: ['Cascade'],
+                summary: 'Delete cascade link',
+                description: 'Undeploys the link first when it is currently deployed/online/offline.',
+                responses: {
+                    200: { description: 'Deleted', content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } } },
+                    400: { description: 'Invalid link ID' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+        },
+
+        '/cascade/links/{id}/reconnect': {
+            parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+            patch: {
+                tags: ['Cascade'],
+                summary: 'Reconnect cascade link',
+                description: 'Changes portal and/or bridge node, undeploying first when necessary.',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { portalNodeId: { type: 'string' }, bridgeNodeId: { type: 'string' } } } } } },
+                responses: {
+                    200: { description: 'Updated link', content: { 'application/json': { schema: { $ref: '#/components/schemas/CascadeLink' } } } },
+                    400: { description: 'Invalid reconnect request' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+        },
+
+        '/cascade/links/{id}/deploy': {
+            parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+            post: {
+                tags: ['Cascade'],
+                summary: 'Deploy cascade link',
+                responses: {
+                    200: { description: 'Deployed', content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } } },
+                    400: { description: 'Invalid link ID' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                    429: { $ref: '#/components/responses/RateLimited' },
+                    500: { description: 'Deploy failed' },
+                },
+            },
+        },
+
+        '/cascade/links/{id}/undeploy': {
+            parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+            post: {
+                tags: ['Cascade'],
+                summary: 'Undeploy cascade link',
+                responses: {
+                    200: { description: 'Undeployed', content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } } },
+                    400: { description: 'Invalid link ID' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                    429: { $ref: '#/components/responses/RateLimited' },
+                },
+            },
+        },
+
+        '/cascade/chain/deploy': {
+            post: {
+                tags: ['Cascade'],
+                summary: 'Deploy cascade chain',
+                description: 'Deploys the whole chain starting from `nodeId` or from the portal side of `linkId`.',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { nodeId: { type: 'string' }, linkId: { type: 'string' } } } } } },
+                responses: {
+                    200: { description: 'Chain deployed', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' }, deployed: { type: 'integer' } } } } } },
+                    400: { description: '`nodeId` or `linkId` is required' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    429: { $ref: '#/components/responses/RateLimited' },
+                    500: { description: 'Chain deploy failed' },
+                },
+            },
+        },
+
+        '/cascade/links/{id}/health': {
+            parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+            get: {
+                tags: ['Cascade'],
+                summary: 'Health-check cascade link',
+                responses: {
+                    200: { description: 'Health result', content: { 'application/json': { schema: { type: 'object', properties: { healthy: { type: 'boolean' }, status: { type: 'string' }, lastHealthCheck: { type: 'string', format: 'date-time', nullable: true }, latencyMs: { type: 'integer', nullable: true } } } } } },
+                    400: { description: 'Invalid link ID' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                },
+            },
+        },
+
+        '/cascade/topology': {
+            get: {
+                tags: ['Cascade'],
+                summary: 'Get cascade topology',
+                description: 'Returns the network graph used by the visual map.',
+                responses: {
+                    200: { description: 'Topology graph', content: { 'application/json': { schema: { type: 'object' } } } },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                },
+            },
+        },
+
+        '/cascade/topology/positions': {
+            post: {
+                tags: ['Cascade'],
+                summary: 'Save cascade topology positions',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['positions'], properties: { positions: { type: 'array', items: { type: 'object' } } } } } } },
+                responses: {
+                    200: { description: 'Saved', content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } } },
+                    400: { description: '`positions` must be an array' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                },
+            },
+        },
+
+        // ── MCP ────────────────────────────────────────────────────────────────
+
+        '/mcp': {
+            post: {
+                tags: ['MCP'],
+                summary: 'MCP Streamable HTTP endpoint',
+                description: 'JSON-RPC 2.0 endpoint for MCP methods such as `initialize`, `ping`, `tools/list`, `tools/call`, `prompts/list`, and `prompts/get`. `tools/call` and requests accepting `text/event-stream` respond as SSE.',
+                requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/JsonRpcRequest' } } } },
+                responses: {
+                    200: { description: 'JSON-RPC response or SSE stream', content: { 'application/json': { schema: { $ref: '#/components/schemas/JsonRpcResponse' } }, 'text/event-stream': { schema: { type: 'string' } } } },
+                    400: { description: 'Invalid JSON-RPC request' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                },
+            },
+        },
+
+        '/mcp/sse': {
+            get: {
+                tags: ['MCP'],
+                summary: 'Open legacy MCP SSE stream',
+                description: 'Legacy MCP transport. Emits an `endpoint` event containing `/api/mcp/messages?sessionId=...`.',
+                responses: {
+                    200: { description: 'SSE stream', content: { 'text/event-stream': { schema: { type: 'string' } } } },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                },
+            },
+        },
+
+        '/mcp/messages': {
+            post: {
+                tags: ['MCP'],
+                summary: 'Send legacy MCP SSE message',
+                parameters: [{ name: 'sessionId', in: 'query', required: true, schema: { type: 'string' } }],
+                requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/JsonRpcRequest' } } } },
+                responses: {
+                    202: { description: 'Accepted; response is sent on the SSE stream' },
+                    400: { description: 'Session not found or invalid JSON-RPC request' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                },
+            },
+        },
+
+        '/mcp/tools': {
+            get: {
+                tags: ['MCP'],
+                summary: 'List MCP tools',
+                responses: {
+                    200: { description: 'Tool list', content: { 'application/json': { schema: { type: 'object', properties: { tools: { type: 'array', items: { type: 'object' } } } } } } },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                },
+            },
+        },
+
+        '/mcp/prompts': {
+            get: {
+                tags: ['MCP'],
+                summary: 'List MCP prompts',
+                responses: {
+                    200: { description: 'Prompt list', content: { 'application/json': { schema: { type: 'object', properties: { prompts: { type: 'array', items: { type: 'object' } } } } } } },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                },
+            },
+        },
+
         // ── Sync ───────────────────────────────────────────────────────────────
 
         '/sync': {
@@ -1081,7 +1664,28 @@ function buildSpec(lang = 'en') {
         }
     }
 
+    if (t.replacements) {
+        applyTextReplacements(out, t.replacements);
+    }
+
     return out;
+}
+
+function applyTextReplacements(value, replacements) {
+    if (!value || typeof value !== 'object') return;
+
+    for (const [key, child] of Object.entries(value)) {
+        if ((key === 'summary' || key === 'description' || key === 'title') && typeof child === 'string') {
+            if (Object.prototype.hasOwnProperty.call(replacements, child)) {
+                value[key] = replacements[child];
+            }
+            continue;
+        }
+
+        if (child && typeof child === 'object') {
+            applyTextReplacements(child, replacements);
+        }
+    }
 }
 
 module.exports = { buildSpec };
