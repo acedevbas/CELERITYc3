@@ -552,6 +552,14 @@ function switchProto(proto) {
             sec.classList.add('virtual-hidden');
             sec.style.display = 'none';
         });
+        // Non-form-section elements that don't belong on virtual nodes
+        // (init-script <details>, ad-hoc cards, etc.). The .non-virtual-only
+        // class is the canonical marker — server-side renders the same
+        // state via inline `display:none`.
+        document.querySelectorAll('.non-virtual-only').forEach(el => {
+            el.classList.add('virtual-hidden');
+            el.style.display = 'none';
+        });
         if (ipFormGroup) ipFormGroup.style.display = 'none';
         if (ipInput) ipInput.removeAttribute('required');
         checkXrayPortConflict();
@@ -560,7 +568,7 @@ function switchProto(proto) {
 
     // Restore everything hidden by 'virtual'.
     if (virtualSection) virtualSection.style.display = 'none';
-    document.querySelectorAll('.form-section.virtual-hidden').forEach(sec => {
+    document.querySelectorAll('.form-section.virtual-hidden, .non-virtual-only.virtual-hidden').forEach(sec => {
         sec.style.display = '';
         sec.classList.remove('virtual-hidden');
     });

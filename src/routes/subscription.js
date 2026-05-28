@@ -165,19 +165,27 @@ async function getActiveNodes(user) {
         logger.warn(`[Sub] NO NODES for user ${user.userId}! Check: active=true, groups match`);
     }
     
-    // Sort nodes: by load percentage when LB is enabled, otherwise by rankingCoefficient.
-    // Virtual nodes always sort first (load=0) so the "Auto" entry shows on top.
+    // Sort nodes: virtual ("Auto") entries always come first regardless of LB
+    // settings. Real nodes follow — by load percentage when LB is enabled,
+    // otherwise by rankingCoefficient.
+    const virtualCmp = (a, b) => (a.type === 'virtual' ? 0 : 1) - (b.type === 'virtual' ? 0 : 1);
     if (lb.enabled) {
         nodes.sort((a, b) => {
-            const loadA = a.type === 'virtual' ? 0 : (a.maxOnlineUsers ? a.onlineUsers / a.maxOnlineUsers : 0);
-            const loadB = b.type === 'virtual' ? 0 : (b.maxOnlineUsers ? b.onlineUsers / b.maxOnlineUsers : 0);
+            const v = virtualCmp(a, b);
+            if (v !== 0) return v;
+            const loadA = a.maxOnlineUsers ? a.onlineUsers / a.maxOnlineUsers : 0;
+            const loadB = b.maxOnlineUsers ? b.onlineUsers / b.maxOnlineUsers : 0;
             if (loadA !== loadB) return loadA - loadB;
             if (a.onlineUsers !== b.onlineUsers) return a.onlineUsers - b.onlineUsers;
             return (a.rankingCoefficient || 1) - (b.rankingCoefficient || 1);
         });
         logger.debug(`[Sub] Load balancing applied`);
     } else {
-        nodes.sort((a, b) => (a.rankingCoefficient || 1) - (b.rankingCoefficient || 1));
+        nodes.sort((a, b) => {
+            const v = virtualCmp(a, b);
+            if (v !== 0) return v;
+            return (a.rankingCoefficient || 1) - (b.rankingCoefficient || 1);
+        });
     }
 
     resolveVirtualSources(nodes, user);
@@ -1627,19 +1635,11 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     // Collect all configs
     const allConfigs = [];
     nodes.forEach(node => {
-        if (node.type === 'virtual') {
-            const sources = node._resolvedSources || [];
-            allConfigs.push({
-                location: node.name,
-                flag: node.flag || '⚡',
-                name: 'Auto',
-                isVirtual: true,
-                strategy: node.virtual?.strategy || 'leastLoad',
-                sourceCount: sources.length,
-                uri: '',
-            });
-            return;
-        }
+        // Virtual nodes are an abstraction over real sibling nodes — they have
+        // no concrete URI to copy/scan, so we omit them from the HTML landing
+        // page entirely. They still appear (always pinned to the top) inside
+        // the actual subscription payloads served to clients via ?format=…
+        if (node.type === 'virtual') return;
         if (node.type === 'xray') {
             // Render one card per published inbound (main + extras).
             const inbounds = getXrayPublishedInbounds(node);
@@ -1685,9 +1685,6 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             locations.set(cfg.location, {
                 flag: cfg.flag,
                 configs: [],
-                isVirtual: !!cfg.isVirtual,
-                strategy: cfg.strategy,
-                sourceCount: cfg.sourceCount,
             });
         }
         locations.get(cfg.location).configs.push({ name: cfg.name, uri: cfg.uri });
@@ -2205,22 +2202,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
 
         <div class="section">
             <h2><i class="ti ti-world"></i> ЛОКАЦИИ</h2>
-            ${[...locations.entries()].map(([name, loc]) => loc.isVirtual ? `
-            <div class="location virtual-location">
-                <div class="location-header">
-                    <span class="location-flag">${loc.flag}</span>
-                    <span class="location-name">${name}</span>
-                    <span class="location-count" title="${loc.strategy} → ${loc.sourceCount} серверов">${loc.strategy}</span>
-                </div>
-                <div class="location-configs" style="max-height:none;">
-                    <div class="location-configs-inner">
-                        <div class="config" style="opacity:0.7;font-size:13px;">
-                            <span class="config-name">Авто-выбор сервера в клиенте (${loc.sourceCount})</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            ` : `
+            ${[...locations.entries()].map(([name, loc]) => `
             <div class="location">
                 <div class="location-header" onclick="this.parentElement.classList.toggle('open')">
                     <span class="location-flag">${loc.flag}</span>
@@ -2249,7 +2231,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     <div class="toast" id="toast"><i class="ti ti-check"></i> Скопировано</div>
 
     <script>
-        const uris = ${JSON.stringify(allConfigs.filter(c => !c.isVirtual).map(c => c.uri))};
+        const uris = ${JSON.stringify(allConfigs.map(c => c.uri))};
 
         function copyText(text, btn) { doCopy(text, btn); }
 

@@ -90,6 +90,10 @@ router.get('/', async (req, res) => {
         let counts = await cache.getDashboardCounts();
         
         if (!counts) {
+            // Virtual nodes are excluded from dashboard counts: they have no
+            // remote service to be "online" and would otherwise inflate
+            // nodesTotal while never contributing to nodesOnline.
+            const realNodeFilter = { type: { $ne: 'virtual' } };
             const [trafficAgg, usersTotal, usersEnabled, nodesTotal, nodesOnline] = await Promise.all([
                 HyUser.aggregate([
                     { $group: { 
@@ -100,8 +104,8 @@ router.get('/', async (req, res) => {
                 ]),
                 HyUser.countDocuments(),
                 HyUser.countDocuments({ enabled: true }),
-                HyNode.countDocuments(),
-                HyNode.countDocuments({ status: 'online' }),
+                HyNode.countDocuments(realNodeFilter),
+                HyNode.countDocuments({ ...realNodeFilter, status: 'online' }),
             ]);
             
             const trafficStats = trafficAgg[0] || { tx: 0, rx: 0 };
@@ -118,8 +122,11 @@ router.get('/', async (req, res) => {
         }
         
         const { usersTotal, usersEnabled, nodesTotal, nodesOnline, trafficStats } = counts;
-        
-        const nodes = await HyNode.find({ active: true })
+
+        // Virtual nodes are not shown in the dashboard's nodes table either —
+        // they are an abstraction over real sibling nodes and would only add
+        // noise (no IP, always offline, no traffic of their own).
+        const nodes = await HyNode.find({ active: true, type: { $ne: 'virtual' } })
             .select('name ip status onlineUsers maxOnlineUsers groups traffic type flag rankingCoefficient comment')
             .populate('groups', 'name color')
             .sort({ rankingCoefficient: 1, name: 1 });
