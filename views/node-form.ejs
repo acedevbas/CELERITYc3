@@ -114,6 +114,8 @@ Object.assign(locals, {
 
             <%- include('partials/node-form/basic') %>
 
+            <%- include('partials/node-form/virtual') %>
+
             <%- include('partials/node-form/network') %>
 
             <%- include('partials/node-form/hysteria') %>
@@ -143,8 +145,8 @@ Object.assign(locals, {
                 </div>
             </div>
 
-            <%# ========== 10. Hysteria: Custom Config ========== %>
-            <div class="form-section hysteria-only" id="hysteriaConfigSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+            <%# ========== 10. Hysteria: Custom Config (hysteria only — hidden for xray and virtual) ========== %>
+            <div class="form-section hysteria-only" id="hysteriaConfigSection" style="<%= (node?.type === 'xray' || node?.type === 'virtual') ? 'display:none' : '' %>">
                 <h3><%= t('nodes.hysteriaConfig') %></h3>
                 <div class="form-group">
                     <label class="checkbox-label">

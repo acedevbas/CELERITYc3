@@ -475,6 +475,23 @@ async function startServer() {
             // Index already dropped or never existed — safe to ignore
         }
 
+        // Migration: rebuild compound {ip, type} unique index when it exists
+        // without a partial filter expression. Virtual nodes have ip=null, so the
+        // unique constraint must skip non-string ip values; Mongoose will not
+        // rewrite an existing index with new options on its own.
+        try {
+            const indexes = await mongoose.connection.collection('hynodes').indexes();
+            const ipType = indexes.find(idx => idx.name === 'ip_1_type_1');
+            if (ipType && !ipType.partialFilterExpression) {
+                await mongoose.connection.collection('hynodes').dropIndex('ip_1_type_1');
+                logger.info('[Migration] Dropped legacy ip_1_type_1 (non-partial) index');
+                await HyNode.syncIndexes();
+                logger.info('[Migration] Recreated hynodes indexes with partialFilterExpression');
+            }
+        } catch (e) {
+            logger.warn(`[Migration] hynodes index sync skipped: ${e.message}`);
+        }
+
         // Migration: ensure all users have xrayUuid (for Xray VLESS support)
         const usersWithoutUuid = await HyUser.find({
             $or: [{ xrayUuid: { $exists: false } }, { xrayUuid: null }, { xrayUuid: '' }]

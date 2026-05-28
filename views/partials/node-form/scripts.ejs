@@ -527,16 +527,58 @@ function checkXrayPortConflict() {
 
 function switchProto(proto) {
     const xraySection = document.getElementById('xraySection');
+    const virtualSection = document.getElementById('virtualSection');
     const cascadeSection = document.getElementById('cascadeRoleSection');
     const labelHysteria = document.getElementById('protoHysteriaLabel');
     const labelXray = document.getElementById('protoXrayLabel');
+    const labelVirtual = document.getElementById('protoVirtualLabel');
     const hysteriaOnlyEls = document.querySelectorAll('.hysteria-only');
+    const ipFormGroup = document.getElementById('ipFormGroup');
+    const ipInput = document.getElementById('ip');
+
+    [labelHysteria, labelXray, labelVirtual].forEach(l => l && l.classList.remove('active'));
+
+    if (proto === 'virtual') {
+        if (xraySection) xraySection.style.display = 'none';
+        if (cascadeSection) cascadeSection.style.display = 'none';
+        if (virtualSection) virtualSection.style.display = '';
+        if (labelVirtual) labelVirtual.classList.add('active');
+        hysteriaOnlyEls.forEach(el => el.style.display = 'none');
+        // Hide everything except: protocol switcher, identification, groups, virtual section.
+        document.querySelectorAll('.form-section').forEach(sec => {
+            if (sec.id === 'virtualSection') return;
+            if (sec.querySelector('.proto-switcher')) return;
+            if (sec.querySelector('input[name="groups"]')) return;
+            sec.classList.add('virtual-hidden');
+            sec.style.display = 'none';
+        });
+        // Non-form-section elements that don't belong on virtual nodes
+        // (init-script <details>, ad-hoc cards, etc.). The .non-virtual-only
+        // class is the canonical marker — server-side renders the same
+        // state via inline `display:none`.
+        document.querySelectorAll('.non-virtual-only').forEach(el => {
+            el.classList.add('virtual-hidden');
+            el.style.display = 'none';
+        });
+        if (ipFormGroup) ipFormGroup.style.display = 'none';
+        if (ipInput) ipInput.removeAttribute('required');
+        checkXrayPortConflict();
+        return;
+    }
+
+    // Restore everything hidden by 'virtual'.
+    if (virtualSection) virtualSection.style.display = 'none';
+    document.querySelectorAll('.form-section.virtual-hidden, .non-virtual-only.virtual-hidden').forEach(sec => {
+        sec.style.display = '';
+        sec.classList.remove('virtual-hidden');
+    });
+    if (ipFormGroup) ipFormGroup.style.display = '';
+    if (ipInput) ipInput.setAttribute('required', 'required');
 
     if (proto === 'xray') {
         xraySection.style.display = '';
         if (cascadeSection) cascadeSection.style.display = '';
-        labelXray.classList.add('active');
-        labelHysteria.classList.remove('active');
+        if (labelXray) labelXray.classList.add('active');
         hysteriaOnlyEls.forEach(el => el.style.display = 'none');
         onCascadeRoleChange();
         // Domain group is shared (no longer .hysteria-only). Its visibility
@@ -545,8 +587,7 @@ function switchProto(proto) {
     } else {
         xraySection.style.display = 'none';
         if (cascadeSection) cascadeSection.style.display = 'none';
-        labelHysteria.classList.add('active');
-        labelXray.classList.remove('active');
+        if (labelHysteria) labelHysteria.classList.add('active');
         hysteriaOnlyEls.forEach(el => el.style.display = '');
         toggleAcmeByDomain();
         toggleObfsPassword();
@@ -557,7 +598,6 @@ function switchProto(proto) {
         toggleQuicFields();
         toggleResolverFields();
         toggleAclFields();
-        // Restore Hysteria-default visibility for the domain group.
         const domainGroup = document.getElementById('domainGroup');
         if (domainGroup) domainGroup.style.display = '';
         const domainHintHy = document.getElementById('domainHintHysteria');

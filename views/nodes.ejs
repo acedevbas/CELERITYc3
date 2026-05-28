@@ -106,10 +106,12 @@
                                     <strong><%= node.name %></strong>
                                     <% if (node.type === 'xray') { %>
                                     <img src="/img/xray.svg" alt="Xray" title="Xray VLESS" style="width:16px;height:16px;vertical-align:middle;margin-left:6px;opacity:0.7;">
+                                    <% } else if (node.type === 'virtual') { %>
+                                    <i class="ti ti-route" title="Virtual / Balancer" style="font-size:16px;vertical-align:middle;margin-left:6px;opacity:0.7;"></i>
                                     <% } else { %>
                                     <img src="/img/hysteria.svg" alt="Hysteria" title="Hysteria 2" style="width:16px;height:16px;vertical-align:middle;margin-left:6px;opacity:0.7;">
                                     <% } %>
-                                    <% if ((ipProtocolCount || {})[node.ip] > 1) { %>
+                                    <% if (node.type !== 'virtual' && (ipProtocolCount || {})[node.ip] > 1) { %>
                                     <span class="badge-cascade relay" title="<%= t('nodes.dualProtocol') %>"><i class="ti ti-layers-subtract" style="font-size:10px;"></i> dual</span>
                                     <% } %>
                                     <% if (node.cascadeRole && node.cascadeRole !== 'standalone') { %>
@@ -124,9 +126,13 @@
                                 </div>
                             </div>
                         </td>
-                        <td><code><%= node.ip %></code></td>
+                        <td><% if (node.type === 'virtual') { %><span class="text-muted">—</span><% } else { %><code><%= node.ip %></code><% } %></td>
                         <td>
-                            <% if (node.type === 'xray' && node.xray && Array.isArray(node.xray.extraInbounds) && node.xray.extraInbounds.length > 0) { %>
+                            <% if (node.type === 'virtual') { %>
+                                <span class="text-muted" title="<%= (node.virtual && node.virtual.strategy) || 'leastLoad' %>">
+                                    <i class="ti ti-route"></i> <%= (node.virtual && node.virtual.strategy) || 'leastLoad' %>
+                                </span>
+                            <% } else if (node.type === 'xray' && node.xray && Array.isArray(node.xray.extraInbounds) && node.xray.extraInbounds.length > 0) { %>
                                 <div class="port-chip-list">
                                     <span class="port-chip" title="<%= (node.xray.transport || 'tcp') %>/<%= (node.xray.security || 'reality') %>"><%= node.port %></span>
                                     <% node.xray.extraInbounds.forEach(function(ei) { %>
@@ -136,22 +142,30 @@
                             <% } else { %>
                                 <code><%= node.port %></code>
                             <% } %>
-                            <% if (node.portRange) { %>
+                            <% if (node.type !== 'virtual' && node.portRange) { %>
                             <br><small class="text-muted">hop: <%= node.portRange %></small>
                             <% } %>
                         </td>
                         <td>
-                            <span class="badge badge-<%= node.status === 'online' ? 'success' : (node.status === 'error' ? 'danger' : 'warning') %>">
-                                <%= node.status %>
-                            </span>
+                            <% if (node.type === 'virtual') { %>
+                                <span class="badge badge-secondary" title="<%= t('nodes.virtualNoStatus') %>">virtual</span>
+                            <% } else { %>
+                                <span class="badge badge-<%= node.status === 'online' ? 'success' : (node.status === 'error' ? 'danger' : 'warning') %>">
+                                    <%= node.status %>
+                                </span>
+                            <% } %>
                             <% if (!node.active) { %>
                             <span class="badge badge-secondary"><%= t('nodes.off') %></span>
                             <% } %>
                         </td>
                         <td>
-                            <span class="<%= node.maxOnlineUsers && node.onlineUsers >= node.maxOnlineUsers ? 'text-danger' : '' %>">
-                                <%= node.onlineUsers || 0 %><% if (node.maxOnlineUsers) { %>/<%= node.maxOnlineUsers %><% } %>
-                            </span>
+                            <% if (node.type === 'virtual') { %>
+                                <span class="text-muted">—</span>
+                            <% } else { %>
+                                <span class="<%= node.maxOnlineUsers && node.onlineUsers >= node.maxOnlineUsers ? 'text-danger' : '' %>">
+                                    <%= node.onlineUsers || 0 %><% if (node.maxOnlineUsers) { %>/<%= node.maxOnlineUsers %><% } %>
+                                </span>
+                            <% } %>
                         </td>
                         <td>
                             <% if (node.groups && node.groups.length > 0) { %>
@@ -183,10 +197,12 @@
                         </td>
                         <td>
                             <div class="node-actions">
-                                <button class="btn-icon" onclick="restartNode('<%= node._id %>')" title="<%= t('nodes.restart') %>" <%= !node.ssh?.password ? 'disabled' : '' %>><i class="ti ti-refresh"></i></button>
-                                <a href="/panel/nodes/<%= node._id %>/terminal" class="btn-icon" title="<%= t('nodes.terminal') %>" <%= !node.ssh?.password ? 'style="pointer-events:none;opacity:0.5"' : '' %>><i class="ti ti-terminal-2"></i></a>
+                                <% if (node.type !== 'virtual') { %>
+                                    <button class="btn-icon" onclick="restartNode('<%= node._id %>')" title="<%= t('nodes.restart') %>" <%= !node.ssh?.password ? 'disabled' : '' %>><i class="ti ti-refresh"></i></button>
+                                    <a href="/panel/nodes/<%= node._id %>/terminal" class="btn-icon" title="<%= t('nodes.terminal') %>" <%= !node.ssh?.password ? 'style="pointer-events:none;opacity:0.5"' : '' %>><i class="ti ti-terminal-2"></i></a>
+                                <% } %>
                                 <a href="/panel/nodes/<%= node._id %>" class="btn-icon" title="<%= t('common.edit') %>"><i class="ti ti-pencil"></i></a>
-                                <% if ((ipProtocolCount || {})[node.ip] < 2) { %>
+                                <% if (node.type !== 'virtual' && (ipProtocolCount || {})[node.ip] < 2) { %>
                                 <a href="/panel/nodes/add?cloneFrom=<%= node._id %>" class="btn-icon" title="<%= t('nodes.addPairedProtocol') %>"><i class="ti ti-plug-connected"></i></a>
                                 <% } %>
                                 <button class="btn-icon btn-icon-danger" onclick="deleteNode('<%= node._id %>')" title="<%= t('common.delete') %>"><i class="ti ti-trash"></i></button>
@@ -249,7 +265,9 @@
                     </div>
                     
                     <div class="mobile-node-actions">
+                        <% if (node.type !== 'virtual') { %>
                         <button class="btn btn-sm" onclick="restartNode('<%= node._id %>')" <%= !node.ssh?.password ? 'disabled' : '' %> title="<%= t('nodes.restart') %>" aria-label="<%= t('nodes.restart') %>"><i class="ti ti-refresh"></i></button>
+                        <% } %>
                         <a href="/panel/nodes/<%= node._id %>" class="btn btn-sm" title="<%= t('common.edit') %>" aria-label="<%= t('common.edit') %>"><i class="ti ti-pencil"></i></a>
                         <button class="btn btn-sm btn-danger" onclick="deleteNode('<%= node._id %>')" title="<%= t('common.delete') %>" aria-label="<%= t('common.delete') %>"><i class="ti ti-trash"></i></button>
                     </div>

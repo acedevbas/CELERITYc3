@@ -148,8 +148,8 @@
 </div>
 <% } %>
 
-<%# ========== Management (edit only) ========== %>
-<% if (node) { %>
+<%# ========== Management (edit only — hidden for virtual: nothing to setup/restart/terminal-into) ========== %>
+<% if (node && node.type !== 'virtual') { %>
 <div class="card mt-3">
     <div class="card-header">
         <h2><%= t('nodes.management') %></h2>
@@ -229,8 +229,8 @@
 </div>
 <% } %>
 
-<%# ========== Config Preview (Hysteria, edit only) ========== %>
-<% if (node?._id && node.type !== 'xray') { %>
+<%# ========== Config Preview (Hysteria only — virtual has no config; xray has its own preview pipeline) ========== %>
+<% if (node?._id && node.type === 'hysteria') { %>
 <div class="card mt-3">
     <div class="card-header">
         <h2><%= t('nodes.nodeConfig') %></h2>

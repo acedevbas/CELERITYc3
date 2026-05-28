@@ -559,7 +559,7 @@ function parseAclRulesInput(raw) {
 }
 
 function getHysteriaAclInlineState(node) {
-    if (!node || node.type === 'xray') {
+    if (!node || node.type === 'xray' || node.type === 'virtual') {
         return { editable: true, reason: '' };
     }
     const aclEnabled = node.acl?.enabled !== false;

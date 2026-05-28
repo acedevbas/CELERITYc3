@@ -416,7 +416,7 @@ router.get('/users/:userId', async (req, res) => {
             effectiveNodes = directNodes;
         } else if (user.groups && user.groups.length > 0) {
             effectiveNodes = await HyNode.find({ active: true, groups: { $in: user.groups } })
-                .select('name ip domain groups').lean();
+                .select('name ip domain type groups').lean();
         }
         
         render(res, 'user-detail', {

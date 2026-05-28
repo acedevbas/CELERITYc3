@@ -607,7 +607,8 @@ class CascadeService {
         }
 
         const [allNodes, allLinks] = await Promise.all([
-            HyNode.find({ active: true })
+            // Virtual nodes have no IP/country and don't participate in the cascade.
+            HyNode.find({ active: true, type: { $ne: 'virtual' } })
                 .select('name ip domain flag type status onlineUsers cascadeRole mapPosition country port ssh')
                 .lean(),
             CascadeLink.find({ active: true })
@@ -994,7 +995,7 @@ class CascadeService {
         const portalSet = new Set(links.map(l => String(l.portalNode)));
         const bridgeSet = new Set(links.map(l => String(l.bridgeNode)));
 
-        const allNodes = await HyNode.find({ active: true }).select('_id cascadeRole').lean();
+        const allNodes = await HyNode.find({ active: true, type: { $ne: 'virtual' } }).select('_id cascadeRole').lean();
 
         const bulkOps = [];
         for (const node of allNodes) {
