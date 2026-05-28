@@ -52,7 +52,7 @@ async function getUserByToken(token) {
             { userId: token }
         ]
     })
-        .populate('nodes', 'active name type status onlineUsers maxOnlineUsers rankingCoefficient domain sni ip port portRange hopInterval portConfigs obfs flag xray')
+        .populate('nodes', 'active name type status onlineUsers maxOnlineUsers rankingCoefficient domain sni ip port portRange hopInterval portConfigs obfs flag xray cascadeRole groups virtual')
         .populate('groups', '_id name subscriptionTitle maxDevices');
     
     return user;
@@ -88,7 +88,7 @@ async function getActiveNodesWithCache() {
 
     // Include type, xray, obfs, and cascadeRole fields needed for URI generation and filtering
     const nodes = await HyNode.find({ active: true })
-        .select('name type flag ip domain sni port portRange hopInterval portConfigs obfs active status onlineUsers maxOnlineUsers rankingCoefficient groups xray cascadeRole')
+        .select('name type flag ip domain sni port portRange hopInterval portConfigs obfs active status onlineUsers maxOnlineUsers rankingCoefficient groups xray cascadeRole virtual')
         .lean();
     await cache.setActiveNodes(nodes);
     return nodes;
@@ -134,10 +134,11 @@ async function getActiveNodes(user) {
         }
     }
 
-    // Filter overloaded nodes (if enabled)
+    // Filter overloaded nodes (if enabled). Virtual nodes have no capacity.
     if (lb.hideOverloaded) {
         const beforeFilter = nodes.length;
         nodes = nodes.filter(n => {
+            if (n.type === 'virtual') return true;
             if (!n.maxOnlineUsers || n.maxOnlineUsers === 0) return true;
             return n.onlineUsers < n.maxOnlineUsers;
         });
@@ -147,11 +148,10 @@ async function getActiveNodes(user) {
     }
 
     // Filter offline/error nodes flagged by the health checker.
-    // Keeps the subscription free of dead servers that stall urltest /
-    // shared DNS resolver in HAPP, v2rayTun, sing-box, Clash, etc.
+    // Virtual nodes are never pinged (default status='offline') so they bypass.
     if (lb.hideOffline !== false) {
         const beforeFilter = nodes.length;
-        nodes = nodes.filter(n => n.status !== 'offline' && n.status !== 'error');
+        nodes = nodes.filter(n => n.type === 'virtual' || (n.status !== 'offline' && n.status !== 'error'));
         if (nodes.length < beforeFilter) {
             logger.debug(`[Sub] Filtered out ${beforeFilter - nodes.length} offline/error nodes`);
         }
@@ -165,11 +165,12 @@ async function getActiveNodes(user) {
         logger.warn(`[Sub] NO NODES for user ${user.userId}! Check: active=true, groups match`);
     }
     
-    // Sort nodes: by load percentage when LB is enabled, otherwise by rankingCoefficient
+    // Sort nodes: by load percentage when LB is enabled, otherwise by rankingCoefficient.
+    // Virtual nodes always sort first (load=0) so the "Auto" entry shows on top.
     if (lb.enabled) {
         nodes.sort((a, b) => {
-            const loadA = a.maxOnlineUsers ? a.onlineUsers / a.maxOnlineUsers : 0;
-            const loadB = b.maxOnlineUsers ? b.onlineUsers / b.maxOnlineUsers : 0;
+            const loadA = a.type === 'virtual' ? 0 : (a.maxOnlineUsers ? a.onlineUsers / a.maxOnlineUsers : 0);
+            const loadB = b.type === 'virtual' ? 0 : (b.maxOnlineUsers ? b.onlineUsers / b.maxOnlineUsers : 0);
             if (loadA !== loadB) return loadA - loadB;
             if (a.onlineUsers !== b.onlineUsers) return a.onlineUsers - b.onlineUsers;
             return (a.rankingCoefficient || 1) - (b.rankingCoefficient || 1);
@@ -179,7 +180,60 @@ async function getActiveNodes(user) {
         nodes.sort((a, b) => (a.rankingCoefficient || 1) - (b.rankingCoefficient || 1));
     }
 
+    resolveVirtualSources(nodes, user);
+
     return nodes;
+}
+
+/**
+ * Mutates each virtual node in `nodes` by attaching a runtime `_resolvedSources`
+ * array of real (non-virtual) sibling nodes that already passed all filters.
+ * Virtual nodes with empty resolved set are removed from the array (no point
+ * emitting an empty balancer).
+ */
+function resolveVirtualSources(nodes, user) {
+    const realById = new Map();
+    for (const n of nodes) {
+        if (n.type !== 'virtual') realById.set(String(n._id), n);
+    }
+    const userGroupIds = new Set((user.groups || []).map(g => String(g._id || g)));
+
+    for (let i = nodes.length - 1; i >= 0; i--) {
+        const node = nodes[i];
+        if (node.type !== 'virtual') continue;
+
+        const cfg = node.virtual || {};
+        let resolved = [];
+
+        if (cfg.selectMode === 'group' && cfg.sourceGroup) {
+            const groupId = String(cfg.sourceGroup);
+            for (const real of realById.values()) {
+                const realGroupIds = (real.groups || []).map(g => String(g._id || g));
+                if (realGroupIds.includes(groupId)) resolved.push(real);
+            }
+        } else {
+            const ids = (cfg.sources || []).map(s => String(s._id || s));
+            for (const id of ids) {
+                const real = realById.get(id);
+                if (real) resolved.push(real);
+            }
+        }
+
+        // Final guard: source must remain visible to this user via group overlap.
+        // Real nodes already passed group filter above, but manual lists may include
+        // nodes the user shouldn't see if administrator changed groups since.
+        resolved = resolved.filter(real => {
+            const ids = (real.groups || []).map(g => String(g._id || g));
+            return ids.some(id => userGroupIds.has(id));
+        });
+
+        if (resolved.length === 0) {
+            logger.debug(`[Sub] Virtual node "${node.name}" dropped: no resolved sources`);
+            nodes.splice(i, 1);
+            continue;
+        }
+        node._resolvedSources = resolved;
+    }
 }
 
 function validateUser(user) {
@@ -194,6 +248,7 @@ function validateUser(user) {
 }
 
 function getNodeConfigs(node) {
+    if (node.type !== 'hysteria') return [];
     const configs = [];
     const host = node.domain || node.ip;
     // SNI logic:
@@ -271,6 +326,7 @@ function generateURI(user, node, config) {
  * @returns {Array<Object>} Inbound descriptors with `{port, nameSuffix, ...inboundFields}`
  */
 function getXrayPublishedInbounds(node) {
+    if (node.type !== 'xray') return [];
     const xray = node.xray || {};
     const main = {
         port: node.port || 443,
@@ -790,8 +846,12 @@ function buildClashDns(rules, dns) {
 function generateURIList(user, nodes) {
     const uris = [];
     nodes.forEach(node => {
+        if (node.type === 'virtual') {
+            // URI list cannot represent a balancer; clients that hit this format
+            // will see only real nodes and fall back to manual selection.
+            return;
+        }
         if (node.type === 'xray') {
-            // One URI per published inbound (main + extras).
             generateVlessURIs(user, node).forEach(uri => uris.push(uri));
         } else {
             getNodeConfigs(node).forEach(cfg => {
@@ -881,11 +941,19 @@ function generateClashYAML(user, nodes, routing) {
     const auth = `${user.userId}:${user.password}`;
     const proxies = [];
     const proxyNames = [];
-    
+    // Maps a HyNode _id (string) -> first proxy name produced for it. Used so
+    // virtual nodes can reference their source nodes' Clash proxies by name.
+    const nameByNodeId = new Map();
+    const virtualSpecs = [];
+
     nodes.forEach(node => {
+        if (node.type === 'virtual') {
+            virtualSpecs.push(node);
+            return;
+        }
+        const beforeIdx = proxyNames.length;
         if (node.type === 'xray') {
             if (!user.xrayUuid) return;
-            // One Clash entry per published inbound (main + extras).
             _buildClashVlessProxies(user, node).forEach(({ name, proxy }) => {
                 if (!proxy) return;
                 proxyNames.push(name);
@@ -915,9 +983,36 @@ function generateClashYAML(user, nodes, routing) {
                 proxies.push(proxy);
             });
         }
+        if (proxyNames.length > beforeIdx) {
+            nameByNodeId.set(String(node._id), proxyNames.slice(beforeIdx));
+        }
     });
-    
+
+    // Virtual nodes become Clash proxy-groups (url-test approximates leastPing/leastLoad).
+    const virtualGroups = [];
+    virtualSpecs.forEach(vnode => {
+        const sourceNames = [];
+        for (const src of vnode._resolvedSources || []) {
+            const names = nameByNodeId.get(String(src._id));
+            if (names) sourceNames.push(...names);
+        }
+        if (sourceNames.length === 0) return;
+        const groupName = `${vnode.flag || ''} ${vnode.name}`.trim();
+        const obs = (vnode.virtual && vnode.virtual.observatory) || {};
+        const url = obs.destination || 'http://www.gstatic.com/generate_204';
+        const intervalSec = parseDurationSeconds(obs.interval || '1m') || 60;
+        const groupType = vnode.virtual?.strategy === 'random' ? 'load-balance' : 'url-test';
+        virtualGroups.push(
+            `  - name: "${groupName}"\n    type: ${groupType}\n    url: ${url}\n    interval: ${intervalSec}\n    proxies:\n${sourceNames.map(n => `      - "${n}"`).join('\n')}`
+        );
+        // Surface the balancer at the top of the user-facing select group too.
+        proxyNames.unshift(groupName);
+    });
+
     let yaml = `proxies:\n${proxies.join('\n')}\n\nproxy-groups:\n  - name: "Proxy"\n    type: select\n    proxies:\n${proxyNames.map(n => `      - "${n}"`).join('\n')}\n`;
+    if (virtualGroups.length > 0) {
+        yaml += virtualGroups.join('\n') + '\n';
+    }
 
     if (routing && routing.enabled && routing.rules && routing.rules.length > 0) {
         const clashDns = buildClashDns(routing.rules, routing.dns);
@@ -1029,111 +1124,142 @@ function _buildSingboxVlessOutbounds(user, node) {
  * Generate full Xray-compatible JSON config for HAPP and v2rayNG clients.
  * Includes VLESS and Hysteria2 outbounds (if Xray-core supports it), routing rules and split DNS.
  */
-function generateV2rayJSON(user, nodes, routing) {
+/**
+ * Build V2Ray/Xray outbounds for a single non-virtual node.
+ * Returns [{ tag, displayName, outbound }, ...] — one entry per published
+ * inbound (xray) or per port-config (hysteria). Used by both v2ray-json and
+ * xray-json.
+ *
+ * `tagOverride(idx, baseTag)` — optional, lets callers force tag values
+ * (e.g. `proxy`, `proxy-2`) for balancers. `displayName` always carries the
+ * human-readable label regardless of override.
+ */
+function _buildV2rayOutboundsForNode(user, node, tagOverride) {
+    if (node.type === 'virtual') return [];
     const auth = `${user.userId}:${user.password}`;
-    const outbounds = [];
-    const allTags = [];
+    const built = [];
 
-    // Build proxy outbounds
-    nodes.forEach(node => {
-        if (node.type === 'xray') {
-            if (!user.xrayUuid) return;
-            const host = node.domain || node.ip;
-            // One v2ray outbound per published inbound (main + extras).
-            getXrayPublishedInbounds(node).forEach(inbound => {
-                const transport = inbound.transport || 'tcp';
-                const security = inbound.security || 'reality';
-                const tag = _xrayInboundName(node, inbound);
+    if (node.type === 'xray') {
+        if (!user.xrayUuid) return [];
+        const host = node.domain || node.ip;
+        getXrayPublishedInbounds(node).forEach((inbound, idx) => {
+            const transport = inbound.transport || 'tcp';
+            const security = inbound.security || 'reality';
+            const displayName = _xrayInboundName(node, inbound);
+            const tag = tagOverride ? tagOverride(built.length, displayName) : displayName;
 
-                const streamSettings = { network: transport };
+            const streamSettings = { network: transport };
 
-                if (security === 'reality') {
-                    const sni = inbound.realitySni && inbound.realitySni[0] ? inbound.realitySni[0] : '';
-                    const shortIds = inbound.realityShortIds || [''];
-                    const sid = shortIds.find(id => id && id.length > 0) || shortIds[0] || '';
-                    streamSettings.security = 'reality';
-                    streamSettings.realitySettings = {
-                        fingerprint: inbound.fingerprint || 'chrome',
-                        serverName: sni,
-                        publicKey: inbound.realityPublicKey || '',
-                        shortId: sid,
-                        spiderX: inbound.realitySpiderX || '',
-                    };
-                } else if (security === 'tls') {
-                    const tls = _resolveXrayTlsClientHints(node);
-                    streamSettings.security = 'tls';
-                    streamSettings.tlsSettings = {
-                        serverName: tls.sni || host,
-                        fingerprint: inbound.fingerprint || 'chrome',
-                        allowInsecure: tls.allowInsecure,
-                    };
-                    if (inbound.alpn && inbound.alpn.length > 0) {
-                        streamSettings.tlsSettings.alpn = inbound.alpn;
-                    }
+            if (security === 'reality') {
+                const sni = inbound.realitySni && inbound.realitySni[0] ? inbound.realitySni[0] : '';
+                const shortIds = inbound.realityShortIds || [''];
+                const sid = shortIds.find(id => id && id.length > 0) || shortIds[0] || '';
+                streamSettings.security = 'reality';
+                streamSettings.realitySettings = {
+                    fingerprint: inbound.fingerprint || 'chrome',
+                    serverName: sni,
+                    publicKey: inbound.realityPublicKey || '',
+                    shortId: sid,
+                    spiderX: inbound.realitySpiderX || '',
+                };
+            } else if (security === 'tls') {
+                const tls = _resolveXrayTlsClientHints(node);
+                streamSettings.security = 'tls';
+                streamSettings.tlsSettings = {
+                    serverName: tls.sni || host,
+                    fingerprint: inbound.fingerprint || 'chrome',
+                    allowInsecure: tls.allowInsecure,
+                };
+                if (inbound.alpn && inbound.alpn.length > 0) {
+                    streamSettings.tlsSettings.alpn = inbound.alpn;
                 }
+            }
 
-                const tlsHints = security === 'tls' ? _resolveXrayTlsClientHints(node) : null;
+            const tlsHints = security === 'tls' ? _resolveXrayTlsClientHints(node) : null;
 
-                if (transport === 'ws') {
-                    const wsHost = inbound.wsHost || (tlsHints ? tlsHints.host : '');
-                    streamSettings.wsSettings = { path: inbound.wsPath || '/', headers: wsHost ? { Host: wsHost } : {} };
-                } else if (transport === 'grpc') {
-                    streamSettings.grpcSettings = { serviceName: inbound.grpcServiceName || 'grpc', multiMode: false };
-                } else if (transport === 'xhttp') {
-                    streamSettings.xhttpSettings = {
-                        path: inbound.xhttpPath || '/',
-                        host: inbound.xhttpHost || (tlsHints ? tlsHints.host : ''),
-                        mode: inbound.xhttpMode || 'auto',
-                    };
-                }
+            if (transport === 'ws') {
+                const wsHost = inbound.wsHost || (tlsHints ? tlsHints.host : '');
+                streamSettings.wsSettings = { path: inbound.wsPath || '/', headers: wsHost ? { Host: wsHost } : {} };
+            } else if (transport === 'grpc') {
+                streamSettings.grpcSettings = { serviceName: inbound.grpcServiceName || 'grpc', multiMode: false };
+            } else if (transport === 'xhttp') {
+                streamSettings.xhttpSettings = {
+                    path: inbound.xhttpPath || '/',
+                    host: inbound.xhttpHost || (tlsHints ? tlsHints.host : ''),
+                    mode: inbound.xhttpMode || 'auto',
+                };
+            }
 
-                const vnextUser = { id: user.xrayUuid, encryption: 'none' };
-                if (transport === 'tcp' && (security === 'reality' || security === 'tls') && inbound.flow) {
-                    vnextUser.flow = inbound.flow;
-                }
+            const vnextUser = { id: user.xrayUuid, encryption: 'none' };
+            if (transport === 'tcp' && (security === 'reality' || security === 'tls') && inbound.flow) {
+                vnextUser.flow = inbound.flow;
+            }
 
-                outbounds.push({
+            built.push({
+                tag,
+                displayName,
+                outbound: {
                     tag,
                     protocol: 'vless',
                     settings: { vnext: [{ address: host, port: inbound.port || node.port || 443, users: [vnextUser] }] },
                     streamSettings,
-                });
-                allTags.push(tag);
+                },
             });
-        } else {
-            getNodeConfigs(node).forEach(cfg => {
-                const tag = `${node.flag || ''} ${node.name} ${cfg.name}`.trim();
-                const hysteriaSettings = { version: 2, auth };
-                if (cfg.portRange) {
-                    hysteriaSettings.udphop = { port: cfg.portRange };
-                    const hopSec = parseDurationSeconds(normalizeHopInterval(cfg.hopInterval));
-                    if (hopSec > 0) hysteriaSettings.udphop.interval = hopSec;
-                }
+        });
+        return built;
+    }
 
-                const streamSettings = {
-                    network: 'hysteria',
-                    hysteriaSettings,
-                    security: 'tls',
-                    tlsSettings: {
-                        serverName: cfg.sni || cfg.host,
-                        allowInsecure: !cfg.hasCert,
-                        alpn: ['h3'],
-                    },
-                };
-
-                if (cfg.obfs === 'salamander' && cfg.obfsPassword) {
-                    streamSettings.udpmasks = [{ type: 'salamander', settings: { password: cfg.obfsPassword } }];
-                }
-
-                outbounds.push({
-                    tag,
-                    protocol: 'hysteria',
-                    settings: { version: 2, address: cfg.host, port: cfg.port },
-                    streamSettings,
-                });
-                allTags.push(tag);
-            });
+    getNodeConfigs(node).forEach(cfg => {
+        const displayName = `${node.flag || ''} ${node.name} ${cfg.name}`.trim();
+        const tag = tagOverride ? tagOverride(built.length, displayName) : displayName;
+        const hysteriaSettings = { version: 2, auth };
+        if (cfg.portRange) {
+            hysteriaSettings.udphop = { port: cfg.portRange };
+            const hopSec = parseDurationSeconds(normalizeHopInterval(cfg.hopInterval));
+            if (hopSec > 0) hysteriaSettings.udphop.interval = hopSec;
         }
+
+        const streamSettings = {
+            network: 'hysteria',
+            hysteriaSettings,
+            security: 'tls',
+            tlsSettings: {
+                serverName: cfg.sni || cfg.host,
+                allowInsecure: !cfg.hasCert,
+                alpn: ['h3'],
+            },
+        };
+
+        if (cfg.obfs === 'salamander' && cfg.obfsPassword) {
+            streamSettings.udpmasks = [{ type: 'salamander', settings: { password: cfg.obfsPassword } }];
+        }
+
+        built.push({
+            tag,
+            displayName,
+            outbound: {
+                tag,
+                protocol: 'hysteria',
+                settings: { version: 2, address: cfg.host, port: cfg.port },
+                streamSettings,
+            },
+        });
+    });
+    return built;
+}
+
+function generateV2rayJSON(user, nodes, routing) {
+    const outbounds = [];
+    const allTags = [];
+
+    // Virtual nodes are skipped here — the single-config v2ray-json shape can't
+    // express multiple balancers cleanly. Use ?format=xray-json for HAPP.
+    nodes.forEach(node => {
+        if (node.type === 'virtual') return;
+        _buildV2rayOutboundsForNode(user, node).forEach(({ tag, outbound }) => {
+            outbounds.push(outbound);
+            allTags.push(tag);
+        });
     });
 
     outbounds.push({ tag: 'direct', protocol: 'freedom',   settings: {} });
@@ -1181,15 +1307,165 @@ function generateV2rayJSON(user, nodes, routing) {
     };
 }
 
+/**
+ * Pick a HAPP-friendly remark for a node — flag prefix + name, trimmed.
+ */
+function _xrayProfileRemark(node) {
+    return `${node.flag || ''} ${node.name || ''}`.trim() || node.name || 'profile';
+}
+
+/**
+ * Build a minimal Xray profile (one or many proxy outbounds + direct/block,
+ * SOCKS/HTTP inbounds, basic routing).
+ *
+ * `proxyOutbounds`  — pre-built outbound objects (already tagged).
+ * `routing`         — optional routing rules to merge.
+ * `extras`          — { balancers, observatory, burstObservatory, balancerRule }
+ *                     used by virtual profiles to add a balancer + observatory.
+ */
+function _buildXrayProfile(remark, proxyOutbounds, routing, extras = {}) {
+    const dnsServers = (routing && routing.enabled && routing.rules)
+        ? buildXrayDns(routing.rules, routing.dns)
+        : ['1.1.1.1', '8.8.8.8'];
+
+    const outbounds = [
+        ...proxyOutbounds,
+        { tag: 'direct', protocol: 'freedom', settings: {} },
+        { tag: 'block', protocol: 'blackhole', settings: { response: { type: 'http' } } },
+    ];
+
+    const rules = [{ type: 'field', port: '53', outboundTag: 'direct' }];
+    if (routing && routing.enabled && routing.rules && routing.rules.length > 0) {
+        rules.push(...buildXrayRules(routing.rules));
+    }
+    if (extras.balancerRule) rules.push(extras.balancerRule);
+
+    const profile = {
+        remarks: remark,
+        log: { loglevel: 'warning' },
+        dns: { servers: dnsServers },
+        inbounds: [
+            {
+                tag: 'socks-in',
+                port: 10808,
+                listen: '127.0.0.1',
+                protocol: 'socks',
+                settings: { auth: 'noauth', udp: true },
+                sniffing: { enabled: true, destOverride: ['http', 'tls', 'quic'] },
+            },
+            {
+                tag: 'http-in',
+                port: 10809,
+                listen: '127.0.0.1',
+                protocol: 'http',
+                settings: {},
+                sniffing: { enabled: true, destOverride: ['http', 'tls'] },
+            },
+        ],
+        outbounds,
+        routing: { domainStrategy: 'IPIfNonMatch', domainMatcher: 'hybrid', rules },
+    };
+    if (extras.balancers) profile.routing.balancers = extras.balancers;
+    if (extras.observatory) profile.observatory = extras.observatory;
+    if (extras.burstObservatory) profile.burstObservatory = extras.burstObservatory;
+    return profile;
+}
+
+/**
+ * Generate a Remnawave-style array of Xray profiles. Each real node becomes a
+ * single-outbound profile; each virtual node becomes a multi-outbound profile
+ * with a balancer + observatory configured per its strategy.
+ *
+ * Consumed by HAPP and any client that ingests Xray JSON profile arrays.
+ */
+function generateXrayJSON(user, nodes, routing) {
+    const profiles = [];
+
+    nodes.forEach(node => {
+        if (node.type === 'virtual') {
+            const sources = node._resolvedSources || [];
+            if (sources.length === 0) return;
+
+            const outbounds = [];
+            const balancerSelector = ['proxy'];
+            sources.forEach((src, srcIdx) => {
+                _buildV2rayOutboundsForNode(user, src, (innerIdx, baseTag) => {
+                    // Tag scheme: first ever outbound = "proxy", rest = "proxy-N"
+                    // (Xray's selector matches by prefix). Keeps fallbackTag
+                    // consistent with Remnawave's documented behaviour.
+                    const ord = outbounds.length + 1;
+                    return ord === 1 ? 'proxy' : `proxy-${ord}`;
+                }).forEach(({ outbound }) => {
+                    outbounds.push(outbound);
+                });
+            });
+            if (outbounds.length === 0) return;
+
+            const cfg = node.virtual || {};
+            const strategy = cfg.strategy || 'leastLoad';
+            const obs = cfg.observatory || {};
+            const balancer = {
+                tag: 'balancer',
+                selector: balancerSelector,
+                strategy: { type: strategy },
+            };
+            if (cfg.fallbackToFirst !== false) balancer.fallbackTag = 'proxy';
+
+            const extras = {
+                balancers: [balancer],
+                balancerRule: { type: 'field', network: 'tcp,udp', balancerTag: 'balancer' },
+            };
+
+            if (strategy === 'leastPing') {
+                extras.observatory = {
+                    subjectSelector: balancerSelector,
+                    probeURL: obs.destination || 'http://www.gstatic.com/generate_204',
+                    probeInterval: obs.interval || '1m',
+                    enableConcurrency: true,
+                };
+            } else if (strategy === 'leastLoad') {
+                const pingConfig = {
+                    destination: obs.destination || 'http://www.gstatic.com/generate_204',
+                    interval: obs.interval || '1m',
+                    timeout: obs.timeout || '5s',
+                    sampling: obs.sampling || 3,
+                };
+                if (obs.connectivity) pingConfig.connectivity = obs.connectivity;
+                extras.burstObservatory = { subjectSelector: balancerSelector, pingConfig };
+            }
+
+            profiles.push(_buildXrayProfile(_xrayProfileRemark(node), outbounds, routing, extras));
+            return;
+        }
+
+        // Real node — one profile per published inbound (xray) or port-config (hysteria).
+        // We keep one outbound per profile so HAPP shows them as distinct servers.
+        _buildV2rayOutboundsForNode(user, node, () => 'proxy').forEach(({ outbound, displayName }) => {
+            profiles.push(_buildXrayProfile(displayName, [outbound], routing, {
+                balancerRule: { type: 'field', network: 'tcp,udp', outboundTag: 'proxy' },
+            }));
+        });
+    });
+
+    return profiles;
+}
+
 function generateSingboxJSON(user, nodes, routing) {
     const auth = `${user.userId}:${user.password}`;
     const proxyOutbounds = [];
     const tags = [];
-    
+    // Per-node tag list — used by virtual nodes to reference their sources.
+    const tagsByNodeId = new Map();
+    const virtualSpecs = [];
+
     nodes.forEach(node => {
+        if (node.type === 'virtual') {
+            virtualSpecs.push(node);
+            return;
+        }
+        const beforeIdx = tags.length;
         if (node.type === 'xray') {
             if (!user.xrayUuid) return;
-            // One sing-box outbound per published inbound (main + extras).
             _buildSingboxVlessOutbounds(user, node).forEach(({ tag, outbound }) => {
                 if (!outbound) return;
                 tags.push(tag);
@@ -1231,11 +1507,45 @@ function generateSingboxJSON(user, nodes, routing) {
                 proxyOutbounds.push(outbound);
             });
         }
+        if (tags.length > beforeIdx) {
+            tagsByNodeId.set(String(node._id), tags.slice(beforeIdx));
+        }
     });
-    
+
+    // Virtual nodes → urltest outbounds. sing-box has no native leastLoad,
+    // urltest is the closest equivalent (latency-based selection).
+    const virtualOutbounds = [];
+    const virtualTags = [];
+    virtualSpecs.forEach(vnode => {
+        const sourceTags = [];
+        for (const src of vnode._resolvedSources || []) {
+            const ts = tagsByNodeId.get(String(src._id));
+            if (ts) sourceTags.push(...ts);
+        }
+        if (sourceTags.length === 0) return;
+        const tag = `${vnode.flag || ''} ${vnode.name}`.trim();
+        const obs = (vnode.virtual && vnode.virtual.observatory) || {};
+        virtualOutbounds.push({
+            type: 'urltest',
+            tag,
+            outbounds: sourceTags,
+            url: obs.destination || 'https://www.gstatic.com/generate_204',
+            interval: obs.interval || '1m',
+            tolerance: 50,
+        });
+        virtualTags.push(tag);
+    });
+
+    const allSelectableTags = [...virtualTags, ...tags];
     const outbounds = [
-        { type: 'selector', tag: 'proxy', outbounds: tags.length > 0 ? [...tags, 'direct'] : ['direct'], default: tags[0] || 'direct' },
+        {
+            type: 'selector',
+            tag: 'proxy',
+            outbounds: allSelectableTags.length > 0 ? [...allSelectableTags, 'direct'] : ['direct'],
+            default: allSelectableTags[0] || 'direct',
+        },
         { type: 'urltest', tag: 'auto', outbounds: tags, url: 'https://www.gstatic.com/generate_204', interval: '3m', tolerance: 50 },
+        ...virtualOutbounds,
         ...proxyOutbounds,
         { type: 'direct', tag: 'direct' },
     ];
@@ -1311,6 +1621,19 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     // Collect all configs
     const allConfigs = [];
     nodes.forEach(node => {
+        if (node.type === 'virtual') {
+            const sources = node._resolvedSources || [];
+            allConfigs.push({
+                location: node.name,
+                flag: node.flag || '⚡',
+                name: 'Auto',
+                isVirtual: true,
+                strategy: node.virtual?.strategy || 'leastLoad',
+                sourceCount: sources.length,
+                uri: '',
+            });
+            return;
+        }
         if (node.type === 'xray') {
             // Render one card per published inbound (main + extras).
             const inbounds = getXrayPublishedInbounds(node);
@@ -1353,7 +1676,13 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     const locations = new Map();
     allConfigs.forEach(cfg => {
         if (!locations.has(cfg.location)) {
-            locations.set(cfg.location, { flag: cfg.flag, configs: [] });
+            locations.set(cfg.location, {
+                flag: cfg.flag,
+                configs: [],
+                isVirtual: !!cfg.isVirtual,
+                strategy: cfg.strategy,
+                sourceCount: cfg.sourceCount,
+            });
         }
         locations.get(cfg.location).configs.push({ name: cfg.name, uri: cfg.uri });
     });
@@ -1870,7 +2199,22 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
 
         <div class="section">
             <h2><i class="ti ti-world"></i> ЛОКАЦИИ</h2>
-            ${[...locations.entries()].map(([name, loc]) => `
+            ${[...locations.entries()].map(([name, loc]) => loc.isVirtual ? `
+            <div class="location virtual-location">
+                <div class="location-header">
+                    <span class="location-flag">${loc.flag}</span>
+                    <span class="location-name">${name}</span>
+                    <span class="location-count" title="${loc.strategy} → ${loc.sourceCount} серверов">${loc.strategy}</span>
+                </div>
+                <div class="location-configs" style="max-height:none;">
+                    <div class="location-configs-inner">
+                        <div class="config" style="opacity:0.7;font-size:13px;">
+                            <span class="config-name">Авто-выбор сервера в клиенте (${loc.sourceCount})</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            ` : `
             <div class="location">
                 <div class="location-header" onclick="this.parentElement.classList.toggle('open')">
                     <span class="location-flag">${loc.flag}</span>
@@ -1899,7 +2243,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     <div class="toast" id="toast"><i class="ti ti-check"></i> Скопировано</div>
 
     <script>
-        const uris = ${JSON.stringify(allConfigs.map(c => c.uri))};
+        const uris = ${JSON.stringify(allConfigs.filter(c => !c.isVirtual).map(c => c.uri))};
 
         function copyText(text, btn) { doCopy(text, btn); }
 
@@ -2249,13 +2593,24 @@ async function serveSubscription(req, res, ctx) {
     const { extraHeaders: hwidHeaders, aborted: hwidAborted } = await runHwidSubscriptionGate(req, res, user, settings, format);
     if (hwidAborted) return;
 
-    const cached = await cache.getSubscription(cacheToken, format);
+    // Cache namespacing: HAPP UA shares the canonical "uri" format with curl/wget
+    // and any unrecognised client. When the user has a virtual node we
+    // transparently upgrade HAPP's response to xray-json (JSON body), but other
+    // clients on the same token must still receive a plain URI list. Suffixing
+    // the cache key with "+happ" splits the keyspace so neither variant pollutes
+    // the other. For all non-uri formats this is a no-op.
+    const isHappUa = /happ/i.test(userAgent || '');
+    const cacheFormat = (isHappUa && (format === 'uri' || format === 'raw'))
+        ? `${format}+happ`
+        : format;
+
+    const cached = await cache.getSubscription(cacheToken, cacheFormat);
     if (cached) {
-        logger.debug(`[Sub] Cache HIT: ${cacheToken}:${format}`);
+        logger.debug(`[Sub] Cache HIT: ${cacheToken}:${cacheFormat}`);
         return sendCachedSubscription(res, cached, format, userAgent, settings, hwidHeaders);
     }
 
-    logger.debug(`[Sub] Cache MISS: token=${cacheToken.substring(0,8)}..., format=${format}`);
+    logger.debug(`[Sub] Cache MISS: token=${cacheToken.substring(0,8)}..., format=${cacheFormat}`);
 
     const nodes = await getActiveNodes(user);
     if (nodes.length === 0) {
@@ -2266,7 +2621,7 @@ async function serveSubscription(req, res, ctx) {
     logger.debug(`[Sub] Serving ${nodes.length} nodes to user ${user.userId}`);
 
     const subscriptionData = generateSubscriptionData(user, nodes, format, userAgent, settings?.subscription?.happProviderId || '', settings?.routing);
-    await cache.setSubscription(cacheToken, format, subscriptionData);
+    await cache.setSubscription(cacheToken, cacheFormat, subscriptionData);
     return sendCachedSubscription(res, subscriptionData, format, userAgent, settings, hwidHeaders);
 }
 
@@ -2321,7 +2676,12 @@ router.get('/files/:token', async (req, res) => {
 function generateSubscriptionData(user, nodes, format, userAgent, happProviderId = '', routing = null) {
     let content;
     let needsBase64 = false;
-    
+    // Effective format may differ from requested when we transparently upgrade
+    // the response (e.g. HAPP UA + virtual node → xray-json instead of URI list).
+    // sendCachedSubscription uses this to set Content-Type and skip URI-only
+    // body mutations (HAPP routing prepend) that would corrupt JSON.
+    let effectiveFormat = format;
+
     switch (format) {
         case 'shadowrocket':
             content = generateURIList(user, nodes);
@@ -2338,9 +2698,23 @@ function generateSubscriptionData(user, nodes, format, userAgent, happProviderId
         case 'v2ray-json':
             content = JSON.stringify(generateV2rayJSON(user, nodes, routing), null, 2);
             break;
+        case 'xray-json':
+            content = JSON.stringify(generateXrayJSON(user, nodes, routing), null, 2);
+            break;
         case 'uri':
         case 'raw':
-        default:
+        default: {
+            // HAPP-specific: when the user has at least one virtual (balancer)
+            // node, switch to the Xray JSON profile array so HAPP's Xray-core
+            // can run the balancer/observatory. Other URI consumers keep the
+            // current plain URI list behaviour.
+            const isHapp = /happ/i.test(userAgent || '');
+            const hasVirtual = isHapp && nodes.some(n => n.type === 'virtual');
+            if (hasVirtual) {
+                content = JSON.stringify(generateXrayJSON(user, nodes, routing), null, 2);
+                effectiveFormat = 'xray-json';
+                break;
+            }
             content = generateURIList(user, nodes);
             // HAPP reads #providerid from body as fallback (in case headers are stripped by a proxy)
             if (happProviderId) {
@@ -2350,6 +2724,7 @@ function generateSubscriptionData(user, nodes, format, userAgent, happProviderId
                 needsBase64 = true;
             }
             break;
+        }
     }
     
     if (needsBase64) {
@@ -2358,6 +2733,7 @@ function generateSubscriptionData(user, nodes, format, userAgent, happProviderId
     
     return {
         content,
+        contentFormat: effectiveFormat,
         profileTitle: getSubscriptionTitle(user),
         username: user.username || user.userId,
         traffic: {
@@ -2373,9 +2749,14 @@ function generateSubscriptionData(user, nodes, format, userAgent, happProviderId
  * Send cached subscription response
  */
 function sendCachedSubscription(res, data, format, userAgent, settings, hwidExtraHeaders = null) {
+    // contentFormat reflects what's actually in `data.content` and may differ
+    // from the requested `format` when we transparently upgrade the response
+    // (HAPP UA + virtual node → xray-json). Falls back to `format` for legacy
+    // cache entries written before this field existed.
+    const effectiveFormat = data.contentFormat || format;
     let contentType = 'text/plain';
-    
-    switch (format) {
+
+    switch (effectiveFormat) {
         case 'clash':
         case 'yaml':
             contentType = 'text/yaml';
@@ -2383,6 +2764,7 @@ function sendCachedSubscription(res, data, format, userAgent, settings, hwidExtr
         case 'singbox':
         case 'json':
         case 'v2ray-json':
+        case 'xray-json':
             contentType = 'application/json';
             break;
     }
@@ -2407,21 +2789,24 @@ function sendCachedSubscription(res, data, format, userAgent, settings, hwidExtr
 
     let content = data.content;
 
-    // HAPP: deliver routing rules and advanced settings via HTTP headers
+    // HAPP: deliver routing rules and advanced settings via HTTP headers.
+    // Body prepend only applies when content is a plain URI list — never when
+    // we transparently upgraded to xray-json (which would corrupt the JSON).
     if (/happ/i.test(userAgent)) {
+        const isUriBody = (effectiveFormat === 'uri' || effectiveFormat === 'raw');
         if (settings?.routing?.enabled) {
             const profile = buildHappRoutingProfile(settings.routing);
             if (profile) {
                 const b64 = Buffer.from(JSON.stringify(profile)).toString('base64');
                 const routingLink = `happ://routing/onadd/${b64}`;
                 headers['routing'] = routingLink;
-                if (format === 'uri' || format === 'raw') {
+                if (isUriBody) {
                     content = `${routingLink}\n${content}`;
                 }
             }
         } else {
             headers['routing'] = 'happ://routing/off';
-            if (format === 'uri' || format === 'raw') {
+            if (isUriBody) {
                 content = `happ://routing/off\n${content}`;
             }
         }

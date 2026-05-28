@@ -87,47 +87,69 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
         const {
             name, ip, domain, sni, port, portRange, statsPort,
             groups, ssh, paths, settings, rankingCoefficient,
-            type, xray, cascadeRole, country, comment,
+            type, xray, virtual, cascadeRole, country, comment,
             hopInterval, acme, masquerade, bandwidth,
             ignoreClientBandwidth, speedTest, disableUDP,
             udpIdleTimeout, sniff, quic, resolver, acl,
             aclRules, useTlsFiles,
         } = req.body;
         
-        if (!name || !ip) {
-            return res.status(400).json({ error: 'name и ip обязательны' });
+        if (!name) {
+            return res.status(400).json({ error: 'name is required' });
         }
 
-        if (type && !['hysteria', 'xray'].includes(type)) {
-            return res.status(400).json({ error: 'type must be hysteria or xray' });
+        if (type && !['hysteria', 'xray', 'virtual'].includes(type)) {
+            return res.status(400).json({ error: 'type must be hysteria, xray, or virtual' });
         }
 
         const nodeType = type || 'hysteria';
 
-        // Ensure no duplicate node for the same IP + protocol type
-        const existing = await HyNode.findOne({ ip, type: nodeType });
-        if (existing) {
-            return res.status(409).json({ error: `A ${nodeType} node with this IP already exists` });
+        if (nodeType !== 'virtual' && !ip) {
+            return res.status(400).json({ error: 'ip is required for hysteria and xray nodes' });
         }
-        
-        // Генерируем секрет для API статистики (Hysteria)
+
+        // Validate virtual-specific fields up-front (pre('validate') hook is
+        // skipped on findOneAndUpdate but still runs on .save(); keeping the
+        // explicit check here gives callers a clear 400 instead of a generic
+        // ValidationError 500).
+        if (nodeType === 'virtual') {
+            const v = virtual || {};
+            const selectMode = v.selectMode === 'group' ? 'group' : 'manual';
+            if (selectMode === 'group' && !v.sourceGroup) {
+                return res.status(400).json({ error: 'Virtual node (group): sourceGroup required' });
+            }
+            if (selectMode === 'manual' && (!Array.isArray(v.sources) || v.sources.length === 0)) {
+                return res.status(400).json({ error: 'Virtual node (manual): at least one source required' });
+            }
+        }
+
+        // Ensure no duplicate node for the same IP + protocol type
+        // (skipped for virtual: it has no IP and the partial unique index excludes it).
+        if (nodeType !== 'virtual') {
+            const existing = await HyNode.findOne({ ip, type: nodeType });
+            if (existing) {
+                return res.status(409).json({ error: `A ${nodeType} node with this IP already exists` });
+            }
+        }
+
         const statsSecret = cryptoService.generateNodeSecret();
 
-        // Resolve SSH: use caller-provided credentials, or inherit from sibling node on the same IP
+        // Resolve SSH: use caller-provided credentials, or inherit from sibling node on the same IP.
+        // Virtual nodes never need SSH — emit empty (still encrypted) shell.
         let resolvedSsh;
         const rawSsh = ssh || {};
-        if (rawSsh.password || rawSsh.privateKey) {
-            // Caller provided SSH — encrypt as normal
+        if (nodeType === 'virtual') {
+            resolvedSsh = cryptoService.encryptSshCredentials({});
+        } else if (rawSsh.password || rawSsh.privateKey) {
             resolvedSsh = cryptoService.encryptSshCredentials(rawSsh);
         } else {
-            // No SSH provided — try to inherit from a sibling node (same IP, different protocol)
             const sibling = await HyNode.findOne({ ip, type: { $ne: nodeType } }).select('ssh').lean();
             resolvedSsh = sibling?.ssh || cryptoService.encryptSshCredentials({});
         }
-        
+
         const nodeData = {
             name,
-            ip,
+            ip: nodeType === 'virtual' ? null : ip,
             type: nodeType,
             domain: domain || '',
             sni: sni || '',
@@ -140,7 +162,7 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
             paths: paths || {},
             settings: settings || {},
             rankingCoefficient: rankingCoefficient || 1.0,
-            cascadeRole: cascadeRole || 'standalone',
+            cascadeRole: nodeType === 'virtual' ? 'standalone' : (cascadeRole || 'standalone'),
             country: country || '',
             comment: typeof comment === 'string' ? comment.trim().slice(0, 500) : '',
             initScript: req.body.initScript || '',
@@ -152,6 +174,26 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
             nodeData.xray = xray;
         }
 
+        if (nodeType === 'virtual') {
+            const v = virtual || {};
+            nodeData.virtual = {
+                selectMode: v.selectMode === 'group' ? 'group' : 'manual',
+                sources: Array.isArray(v.sources) ? v.sources : [],
+                sourceGroup: v.sourceGroup || null,
+                strategy: ['random', 'roundRobin', 'leastPing', 'leastLoad'].includes(v.strategy)
+                    ? v.strategy
+                    : 'leastLoad',
+                fallbackToFirst: v.fallbackToFirst !== false,
+                observatory: {
+                    destination: (v.observatory?.destination || '').trim() || 'http://www.gstatic.com/generate_204',
+                    connectivity: (v.observatory?.connectivity || '').trim(),
+                    interval: (v.observatory?.interval || '').trim() || '1m',
+                    timeout: (v.observatory?.timeout || '').trim() || '5s',
+                    sampling: parseInt(v.observatory?.sampling, 10) || 3,
+                },
+            };
+        }
+
         // Hysteria 2 advanced configuration fields
         const hy2Fields = { hopInterval, acme, masquerade, bandwidth, ignoreClientBandwidth, speedTest, disableUDP, udpIdleTimeout, sniff, quic, resolver, acl, aclRules, useTlsFiles };
         for (const [key, value] of Object.entries(hy2Fields)) {
@@ -160,12 +202,11 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
 
         const node = new HyNode(nodeData);
         await node.save();
-        
-        // Инвалидируем кэш
+
         await invalidateNodesCache();
-        
-        logger.info(`[Nodes API] Created ${nodeType} node ${name} (${ip})`);
-        
+
+        logger.info(`[Nodes API] Created ${nodeType} node ${name} (${nodeType === 'virtual' ? 'virtual' : ip})`);
+
         res.status(201).json(node);
     } catch (error) {
         logger.error(`[Nodes API] Create node error: ${error.message}`);
@@ -181,13 +222,13 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
         const allowedUpdates = [
             'name', 'domain', 'sni', 'port', 'portRange', 'statsPort',
             'groups', 'ssh', 'paths', 'settings', 'active', 'rankingCoefficient',
-            'type', 'xray', 'cascadeRole', 'country', 'comment',
+            'type', 'xray', 'virtual', 'cascadeRole', 'country', 'comment',
             'hopInterval', 'acme', 'masquerade', 'bandwidth',
             'ignoreClientBandwidth', 'speedTest', 'disableUDP',
             'udpIdleTimeout', 'sniff', 'quic', 'resolver', 'acl',
             'aclRules', 'useTlsFiles', 'initScript',
         ];
-        
+
         const updates = {};
         for (const key of allowedUpdates) {
             if (req.body[key] !== undefined) {
@@ -202,13 +243,38 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
                 }
             }
         }
-        
+
+        // findByIdAndUpdate bypasses pre('validate') hooks even with runValidators,
+        // so enforce type-specific invariants explicitly here. We need the existing
+        // doc to know the resulting type when only one of {type,virtual} is sent.
+        const existing = await HyNode.findById(req.params.id).select('type ip virtual').lean();
+        if (!existing) {
+            return res.status(404).json({ error: 'Node not found' });
+        }
+        const nextType = updates.type || existing.type;
+        const nextVirtual = updates.virtual !== undefined ? updates.virtual : existing.virtual;
+        const nextIp = updates.ip !== undefined ? updates.ip : existing.ip;
+
+        if (nextType === 'virtual') {
+            const v = nextVirtual || {};
+            if (v.selectMode === 'group' && !v.sourceGroup) {
+                return res.status(400).json({ error: 'Virtual node (group): sourceGroup required' });
+            }
+            if (v.selectMode !== 'group' && (!Array.isArray(v.sources) || v.sources.length === 0)) {
+                return res.status(400).json({ error: 'Virtual node (manual): at least one source required' });
+            }
+            // Virtual nodes carry no IP — clear any leftover from a prior type.
+            updates.ip = null;
+        } else if (!nextIp) {
+            return res.status(400).json({ error: `Node type ${nextType} requires ip` });
+        }
+
         const node = await HyNode.findByIdAndUpdate(
             req.params.id,
             { $set: updates },
             { new: true }
         ).populate('groups', 'name color');
-        
+
         if (!node) {
             return res.status(404).json({ error: 'Node not found' });
         }
@@ -595,6 +661,10 @@ router.post('/:id/setup', requireScope('nodes:write'), async (req, res) => {
             setupPortHopping = true,
             restartService   = true,
         } = req.body || {};
+
+        if (node.type === 'virtual') {
+            return res.status(400).json({ success: false, error: 'Virtual nodes have no remote server to set up' });
+        }
 
         logger.info(`[Nodes API] Auto-setup started for ${node.name} (${node.ip}) via API`);
 

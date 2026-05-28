@@ -747,9 +747,11 @@ class SyncService {
     // ==================== HYSTERIA / COMMON METHODS ====================
 
     /**
-     * Update config on a specific node (dispatches by type)
+     * Update config on a specific node (dispatches by type).
+     * Virtual nodes have no remote server — sync is a no-op.
      */
     async updateNodeConfig(node) {
+        if (node.type === 'virtual') return;
         if (node.type === 'xray') {
             return this.updateXrayNodeConfig(node);
         }
@@ -921,9 +923,11 @@ class SyncService {
     }
 
     /**
-     * Collect traffic stats from node and update users (dispatches by type)
+     * Collect traffic stats from node and update users (dispatches by type).
+     * Virtual nodes never carry traffic of their own.
      */
     async collectTrafficStats(node) {
+        if (node.type === 'virtual') return;
         if (node.type === 'xray') {
             return this.collectXrayTrafficStats(node);
         }
@@ -1003,9 +1007,11 @@ class SyncService {
     }
 
     /**
-     * Get online users from node (dispatches by type)
+     * Get online users from node (dispatches by type).
+     * Virtual nodes are aggregators with no online state of their own.
      */
     async getOnlineUsers(node) {
+        if (node.type === 'virtual') return 0;
         if (node.type === 'xray') {
             return this.getXrayOnlineUsers(node);
         }
@@ -1073,7 +1079,7 @@ class SyncService {
      * Kick user from all nodes
      */
     async kickUser(userId) {
-        const user = await HyUser.findOne({ userId }).populate('nodes', 'name ip statsPort statsSecret');
+        const user = await HyUser.findOne({ userId }).populate('nodes', 'name type ip statsPort statsSecret');
         
         if (!user) {
             return;
@@ -1081,8 +1087,10 @@ class SyncService {
         
         for (const node of user.nodes) {
             try {
-                if (!node.statsPort || !node.statsSecret) continue;
-                
+                // Virtual nodes have no remote service to kick from.
+                if (node.type === 'virtual') continue;
+                if (!node.statsPort || !node.statsSecret || !node.ip) continue;
+
                 const url = `http://${node.ip}:${node.statsPort}/kick`;
                 
                 await axios.post(url, [userId], {

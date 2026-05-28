@@ -39,6 +39,49 @@ const {
 
 const sniScanner = require('../../services/sniScanner');
 
+/**
+ * Parse virtual-node form fields and apply them to nodeData.
+ * Returns an error string on validation failure, otherwise null.
+ */
+function applyVirtualFormFields(nodeData, body) {
+    const selectMode = body['virtual.selectMode'] === 'group' ? 'group' : 'manual';
+    const strategy = ['random', 'roundRobin', 'leastPing', 'leastLoad'].includes(body['virtual.strategy'])
+        ? body['virtual.strategy']
+        : 'leastLoad';
+
+    let sources = [];
+    if (selectMode === 'manual') {
+        const raw = body['virtual.sources'] || body['virtual.sources[]'];
+        if (Array.isArray(raw)) sources = raw.filter(Boolean);
+        else if (raw) sources = [raw];
+    }
+
+    const sourceGroup = selectMode === 'group' ? (body['virtual.sourceGroup'] || null) : null;
+
+    if (selectMode === 'manual' && sources.length === 0) {
+        return 'Virtual node: select at least one source node';
+    }
+    if (selectMode === 'group' && !sourceGroup) {
+        return 'Virtual node: select a source group';
+    }
+
+    nodeData.virtual = {
+        selectMode,
+        sources,
+        sourceGroup,
+        strategy,
+        fallbackToFirst: body['virtual.fallbackToFirst'] === 'on',
+        observatory: {
+            destination: (body['virtual.observatory.destination'] || '').trim() || 'http://www.gstatic.com/generate_204',
+            connectivity: (body['virtual.observatory.connectivity'] || '').trim(),
+            interval: (body['virtual.observatory.interval'] || '').trim() || '1m',
+            timeout: (body['virtual.observatory.timeout'] || '').trim() || '5s',
+            sampling: parseInt(body['virtual.observatory.sampling'], 10) || 3,
+        },
+    };
+    return null;
+}
+
 // ==================== DASHBOARD ====================
 
 // GET /panel - Dashboard
@@ -142,9 +185,14 @@ router.get('/nodes', async (req, res) => {
 // and automatically switch to the opposite protocol type.
 router.get('/nodes/add', async (req, res) => {
     try {
-        const [groups, settings] = await Promise.all([
+        const [groups, settings, candidateNodes] = await Promise.all([
             getActiveGroups(),
             Settings.get(),
+            // Source candidates for virtual nodes — exclude virtual to prevent cycles.
+            HyNode.find({ type: { $ne: 'virtual' } })
+                .select('_id name flag type active')
+                .sort({ name: 1 })
+                .lean(),
         ]);
 
         let prefillNode = null;
@@ -153,14 +201,14 @@ router.get('/nodes/add', async (req, res) => {
                 .select('ip flag country groups type')
                 .populate('groups', '_id name color')
                 .lean();
-            if (source) {
+            // Virtual nodes can't seed a sibling protocol — they have no IP/transport.
+            if (source && source.type !== 'virtual') {
                 // Flip the protocol: if source is hysteria → suggest xray, and vice-versa
                 prefillNode = {
                     ip: source.ip,
                     flag: source.flag || '',
                     country: source.country || '',
                     groups: source.groups || [],
-                    // Flip protocol type so the form opens with the opposite one pre-selected
                     type: source.type === 'xray' ? 'hysteria' : 'xray',
                 };
             }
@@ -171,6 +219,7 @@ router.get('/nodes/add', async (req, res) => {
             page: 'nodes',
             node: prefillNode,
             groups,
+            candidateNodes,
             cascadeLinks: [],
             error: req.query.error || null,
             panelDomain: config.PANEL_DOMAIN || '',
@@ -230,18 +279,23 @@ router.patch('/nodes/reorder', async (req, res) => {
 // POST /panel/nodes - Create node
 router.post('/nodes', async (req, res) => {
     try {
-        const { name, ip } = req.body;
+        const { name } = req.body;
+        const nodeType = ['xray', 'virtual'].includes(req.body.type) ? req.body.type : 'hysteria';
+        const ip = req.body.ip || '';
 
-        if (!name || !ip) {
-            return res.redirect(`/panel/nodes/add?error=${encodeURIComponent('Name and IP address are required')}`);
+        if (!name) {
+            return res.redirect(`/panel/nodes/add?error=${encodeURIComponent('Name is required')}`);
+        }
+        if (nodeType !== 'virtual' && !ip) {
+            return res.redirect(`/panel/nodes/add?error=${encodeURIComponent('IP address is required')}`);
         }
 
-        const nodeType = req.body.type === 'xray' ? 'xray' : 'hysteria';
-
-        // Ensure no duplicate node for the same IP + protocol type
-        const existing = await HyNode.findOne({ ip, type: nodeType });
-        if (existing) {
-            return res.redirect(`/panel/nodes/add?error=${encodeURIComponent(`A ${nodeType} node with this IP already exists`)}`);
+        // Ensure no duplicate node for the same IP + protocol type (skipped for virtual: no IP).
+        if (nodeType !== 'virtual') {
+            const existing = await HyNode.findOne({ ip, type: nodeType });
+            if (existing) {
+                return res.redirect(`/panel/nodes/add?error=${encodeURIComponent(`A ${nodeType} node with this IP already exists`)}`);
+            }
         }
 
         const sshPassword = req.body['ssh.password'] || '';
@@ -281,7 +335,7 @@ router.post('/nodes', async (req, res) => {
 
         const nodeData = {
             name,
-            ip,
+            ip: nodeType === 'virtual' ? null : ip,
             type: nodeType,
             domain: req.body.domain || '',
             sni: req.body.sni || '',
@@ -315,11 +369,14 @@ router.post('/nodes', async (req, res) => {
             if (xrayError) {
                 return res.redirect(`/panel/nodes/add?error=${encodeURIComponent(xrayError)}`);
             }
-            // Mint Reality keys for any extra inbound that arrived empty.
-            // Removes the "save first, then click Generate" round-trip.
             ensureExtraInboundRealityKeys(nodeData.xray, nodeSetup);
             if (nodeData.cascadeRole !== 'bridge' && !nodeData.xray.agentToken) {
                 nodeData.xray.agentToken = nodeSetup.generateAgentToken();
+            }
+        } else if (nodeType === 'virtual') {
+            const virtualError = applyVirtualFormFields(nodeData, req.body);
+            if (virtualError) {
+                return res.redirect(`/panel/nodes/add?error=${encodeURIComponent(virtualError)}`);
             }
         } else {
             const hyFields = parseHysteriaFormFields(req.body);
@@ -443,7 +500,7 @@ router.get('/nodes/:id', async (req, res) => {
         // Pull manualKey explicitly (schema marks it select:false) so we can
         // populate the manualKeySet flag in the rendered form. The actual
         // PEM is then stripped via sanitizeXrayForRender before reaching EJS.
-        const [node, groups, cascadeLinks, settings] = await Promise.all([
+        const [node, groups, cascadeLinks, settings, candidateNodes] = await Promise.all([
             HyNode.findById(req.params.id)
                 .select('+xray.manualKey')
                 .populate('groups', 'name color'),
@@ -454,6 +511,12 @@ router.get('/nodes/:id', async (req, res) => {
               .populate('bridgeNode', 'name ip flag')
               .sort({ createdAt: -1 }),
             Settings.get(),
+            // Source candidates for virtual nodes — exclude virtual nodes (anti-cycle)
+            // and the current node itself.
+            HyNode.find({ type: { $ne: 'virtual' }, _id: { $ne: req.params.id } })
+                .select('_id name flag type active')
+                .sort({ name: 1 })
+                .lean(),
         ]);
 
         if (!node) {
@@ -461,7 +524,7 @@ router.get('/nodes/:id', async (req, res) => {
         }
 
         let nodeConfigPreview = '';
-        if (node.type !== 'xray') {
+        if (node.type === 'hysteria') {
             const customConfig = String(node.customConfig || '').trim();
             if (node.useCustomConfig && customConfig) {
                 nodeConfigPreview = customConfig;
@@ -484,6 +547,7 @@ router.get('/nodes/:id', async (req, res) => {
             node: renderNode,
             nodeConfigPreview,
             groups,
+            candidateNodes,
             cascadeLinks: cascadeLinks || [],
             error: req.query.error || null,
             panelDomain: config.PANEL_DOMAIN || '',
@@ -505,10 +569,15 @@ router.post('/nodes/:id', async (req, res) => {
             return res.redirect('/panel/nodes');
         }
 
-        const { name, ip } = req.body;
+        const { name } = req.body;
+        const nodeType = ['xray', 'virtual'].includes(req.body.type) ? req.body.type : 'hysteria';
+        const ip = req.body.ip || '';
 
-        if (!name || !ip) {
-            return res.redirect(`/panel/nodes/${nodeId}?error=${encodeURIComponent('Name and IP address are required')}`);
+        if (!name) {
+            return res.redirect(`/panel/nodes/${nodeId}?error=${encodeURIComponent('Name is required')}`);
+        }
+        if (nodeType !== 'virtual' && !ip) {
+            return res.redirect(`/panel/nodes/${nodeId}?error=${encodeURIComponent('IP address is required')}`);
         }
 
         let groups = [];
@@ -516,11 +585,9 @@ router.post('/nodes/:id', async (req, res) => {
             groups = Array.isArray(req.body.groups) ? req.body.groups : [req.body.groups];
         }
 
-        const nodeType = req.body.type === 'xray' ? 'xray' : 'hysteria';
-
         const updates = {
             name,
-            ip,
+            ip: nodeType === 'virtual' ? null : ip,
             type: nodeType,
             domain: req.body.domain || '',
             sni: req.body.sni || '',
@@ -563,18 +630,20 @@ router.post('/nodes/:id', async (req, res) => {
                 ...existingXray,
                 ...parsedXray,
             };
-            // Validate using merged xray + the about-to-save node fields.
-            // Pass `domain` so manual TLS validation can check it.
             const portForValidate = parseInt(req.body.port, 10) || existingNode.port;
             const domainForValidate = String(req.body.domain || '').trim();
             const xrayError = validateXrayFormFields(updates.xray, { port: portForValidate, domain: domainForValidate });
             if (xrayError) {
                 return res.redirect(`/panel/nodes/${nodeId}?error=${encodeURIComponent(xrayError)}`);
             }
-            // Mint Reality keys for any extra inbound that arrived empty.
             ensureExtraInboundRealityKeys(updates.xray, nodeSetup);
             if ((req.body.cascadeRole || 'standalone') !== 'bridge' && !updates.xray.agentToken) {
                 updates.xray.agentToken = nodeSetup.generateAgentToken();
+            }
+        } else if (nodeType === 'virtual') {
+            const virtualError = applyVirtualFormFields(updates, req.body);
+            if (virtualError) {
+                return res.redirect(`/panel/nodes/${nodeId}?error=${encodeURIComponent(virtualError)}`);
             }
         } else {
             const hyFields = parseHysteriaFormFields(req.body);
@@ -638,7 +707,11 @@ router.post('/nodes/:id/setup', async (req, res) => {
         if (!node) {
             return res.status(404).json({ success: false, error: 'Нода не найдена', logs: [] });
         }
-        
+
+        if (node.type === 'virtual') {
+            return res.status(400).json({ success: false, error: 'Virtual nodes have no remote service to set up', logs: [] });
+        }
+
         if (!node.ssh?.password && !node.ssh?.privateKey) {
             return res.status(400).json({ success: false, error: 'SSH данные не настроены', logs: [] });
         }
@@ -1121,6 +1194,10 @@ router.post('/nodes/:id/restart', async (req, res) => {
         const node = await HyNode.findById(req.params.id);
         if (!node) {
             return res.status(404).json({ error: 'Node not found' });
+        }
+
+        if (node.type === 'virtual') {
+            return res.status(400).json({ error: 'Virtual nodes have no remote service to restart' });
         }
 
         // Xray nodes with agent: restart + sync through the agent API

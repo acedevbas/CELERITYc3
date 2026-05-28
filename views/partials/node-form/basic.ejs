@@ -6,10 +6,10 @@
                            placeholder="<%= t('nodes.nodeNamePlaceholder') %>" required>
                     <small><%= t('nodes.nodeNameHint') %></small>
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="ipFormGroup" style="<%= node?.type === 'virtual' ? 'display:none' : '' %>">
                     <label for="ip"><%= t('nodes.ipAddress') %></label>
                     <input type="text" id="ip" name="ip" value="<%= node?.ip || '' %>"
-                           placeholder="123.45.67.89" required>
+                           placeholder="123.45.67.89" <%= node?.type === 'virtual' ? '' : 'required' %>>
                     <div id="siblingNodeHint" class="alert alert-info" style="display:none;margin-top:6px;font-size:13px;padding:7px 10px;">
                         <i class="ti ti-link"></i> <span id="siblingNodeHintText"></span>
                     </div>
@@ -111,6 +111,14 @@
                         <span class="proto-icon"><img src="/img/xray.svg" alt="Xray" style="width:24px;height:24px;"></span>
                         <span class="proto-name">Xray VLESS</span>
                         <span class="proto-desc">Reality / TLS · WebSocket · gRPC</span>
+                    </label>
+                    <label class="proto-option <% if (node?.type === 'virtual') { %>active<% } %>" id="protoVirtualLabel">
+                        <input type="radio" name="type" value="virtual" id="protoVirtual"
+                               <%= node?.type === 'virtual' ? 'checked' : '' %>
+                               onchange="switchProto('virtual')">
+                        <span class="proto-icon"><i class="ti ti-route" style="font-size:24px;"></i></span>
+                        <span class="proto-name"><%= t('nodes.virtualName') %></span>
+                        <span class="proto-desc"><%= t('nodes.virtualDesc') %></span>
                     </label>
                 </div>
             </div>

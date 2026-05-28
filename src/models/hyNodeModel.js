@@ -214,16 +214,42 @@ const xrayConfigSchema = new mongoose.Schema({
     extraInbounds: { type: [xrayExtraInboundSchema], default: [] },
 }, { _id: false });
 
+// Virtual node: a balancer entry that aggregates other nodes into a single
+// subscription record. Carries no transport/server fields itself — only the
+// selection rule and observatory config consumed by Xray's load balancer.
+const virtualConfigSchema = new mongoose.Schema({
+    // 'manual' — explicit list of HyNode ids; 'group' — all active nodes from one ServerGroup.
+    selectMode: { type: String, enum: ['manual', 'group'], default: 'manual' },
+    sources: [{ type: mongoose.Schema.Types.ObjectId, ref: 'HyNode' }],
+    sourceGroup: { type: mongoose.Schema.Types.ObjectId, ref: 'ServerGroup', default: null },
+    // Xray balancer strategy. leastLoad/leastPing require an observatory.
+    strategy: {
+        type: String,
+        enum: ['random', 'roundRobin', 'leastPing', 'leastLoad'],
+        default: 'leastLoad',
+    },
+    // When all probes fail, route through the first source instead of dropping traffic.
+    fallbackToFirst: { type: Boolean, default: true },
+    observatory: {
+        destination: { type: String, default: 'http://www.gstatic.com/generate_204' },
+        connectivity: { type: String, default: '' },
+        interval: { type: String, default: '1m' },
+        timeout: { type: String, default: '5s' },
+        sampling: { type: Number, default: 3 },
+    },
+}, { _id: false });
+
 const hyNodeSchema = new mongoose.Schema({
-    // 'hysteria' (default) or 'xray'
-    type: { type: String, enum: ['hysteria', 'xray'], default: 'hysteria' },
+    // 'hysteria' (default), 'xray' or 'virtual' (balancer aggregator).
+    type: { type: String, enum: ['hysteria', 'xray', 'virtual'], default: 'hysteria' },
 
     name: { type: String, required: true },
     flag: { type: String, default: '' },
     // Free-form operator note displayed in the node list and dashboard.
     // Trimmed and capped to avoid abuse / excessive payload size.
     comment: { type: String, default: '', trim: true, maxlength: 500 },
-    ip: { type: String, required: true },
+    // Required for hysteria/xray; null for virtual (no transport).
+    ip: { type: String, default: null },
     domain: { type: String, default: '' },
     sni: { type: String, default: '' },
     port: { type: Number, default: 443 },
@@ -250,7 +276,10 @@ const hyNodeSchema = new mongoose.Schema({
 
     // Xray-specific configuration (only used when type === 'xray')
     xray: { type: xrayConfigSchema, default: () => ({}) },
-    
+
+    // Virtual-specific configuration (only used when type === 'virtual')
+    virtual: { type: virtualConfigSchema, default: () => ({}) },
+
     groups: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'ServerGroup',
@@ -313,18 +342,44 @@ const hyNodeSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
-// One IP may host at most one node per protocol type
-hyNodeSchema.index({ ip: 1, type: 1 }, { unique: true });
+// One IP may host at most one node per protocol type. Virtual nodes have no IP
+// (null), so the partial filter excludes them from the unique constraint.
+hyNodeSchema.index(
+    { ip: 1, type: 1 },
+    { unique: true, partialFilterExpression: { ip: { $type: 'string' } } }
+);
 hyNodeSchema.index({ active: 1 });
 hyNodeSchema.index({ groups: 1 });
 hyNodeSchema.index({ status: 1 });
 
+// Type-conditional validation: hysteria/xray require ip; virtual requires either
+// a non-empty sources list (manual) or a sourceGroup (group mode), and must not
+// reference another virtual node (anti-cycle).
+hyNodeSchema.pre('validate', function(next) {
+    if (this.type === 'virtual') {
+        const v = this.virtual || {};
+        if (v.selectMode === 'manual' && (!v.sources || v.sources.length === 0)) {
+            return next(new Error('Virtual node (manual): at least one source required'));
+        }
+        if (v.selectMode === 'group' && !v.sourceGroup) {
+            return next(new Error('Virtual node (group): sourceGroup required'));
+        }
+        return next();
+    }
+    if (!this.ip) {
+        return next(new Error(`Node type ${this.type} requires ip`));
+    }
+    return next();
+});
+
 hyNodeSchema.virtual('serverAddress').get(function() {
+    if (this.type === 'virtual') return '';
     const host = this.domain || this.ip;
     return `${host}:${this.portRange}`;
 });
 
 hyNodeSchema.methods.getSubscriptionAddress = function() {
+    if (this.type === 'virtual') return '';
     const host = this.domain || this.ip;
     if (this.portRange && this.portRange.includes('-')) {
         return `${host}:${this.portRange}`;

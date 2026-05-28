@@ -45,16 +45,32 @@ const manageNodeSchema = z.object({
     id: z.string().optional().describe('Node MongoDB _id (required for all except create)'),
     data: z.object({
         name: z.string().optional(),
-        ip: z.string().optional(),
+        ip: z.string().optional().describe('IPv4/IPv6 of the host (required for hysteria/xray; ignored for virtual)'),
         domain: z.string().optional(),
         sni: z.string().optional(),
         port: z.number().optional(),
         portRange: z.string().optional(),
-        type: z.enum(['hysteria', 'xray']).optional(),
+        type: z.enum(['hysteria', 'xray', 'virtual']).optional().describe('Node type. "virtual" is a load-balancer entry (HAPP/Xray-core balancer + Singbox/Clash url-test/load-balance group) without its own remote server'),
         groups: z.array(z.string()).optional(),
         active: z.boolean().optional(),
         country: z.string().optional(),
         cascadeRole: z.enum(['standalone', 'portal', 'bridge', 'relay']).optional(),
+        // Virtual-node specific (load balancer over real sibling nodes).
+        // Only consumed when type==='virtual'. Mirrors hyNodeModel.virtualConfigSchema.
+        virtual: z.object({
+            selectMode: z.enum(['manual', 'group']).optional().describe('"manual": pick from `sources`. "group": dynamically include every active node in `sourceGroup`'),
+            sources: z.array(z.string()).optional().describe('HyNode _ids — required when selectMode==="manual"'),
+            sourceGroup: z.string().optional().describe('ServerGroup _id — required when selectMode==="group"'),
+            strategy: z.enum(['random', 'roundRobin', 'leastPing', 'leastLoad']).optional().describe('Xray balancer strategy. leastPing/leastLoad require observatory'),
+            fallbackToFirst: z.boolean().optional().describe('Use the first source as fallback when all observed peers are down (Xray fallbackTag)'),
+            observatory: z.object({
+                destination: z.string().optional().describe('Probe URL returning HTTP 204 (default http://www.gstatic.com/generate_204)'),
+                connectivity: z.string().optional().describe('Local connectivity check URL — only probed when destination fails'),
+                interval: z.string().optional().describe('Probe interval, e.g. "1m", "30s" (min "10s")'),
+                timeout: z.string().optional().describe('Probe timeout, e.g. "5s"'),
+                sampling: z.number().int().min(1).max(50).optional().describe('Burst Observatory sample window — recent probe results to keep'),
+            }).optional(),
+        }).optional(),
         ssh: z.object({
             host: z.string().optional(),
             port: z.number().optional(),
@@ -224,17 +240,38 @@ async function manageNode(args, emit) {
 
     switch (action) {
         case 'create': {
-            if (!data.name || !data.ip) throw new Error('name and ip are required for create');
+            if (!data.name) throw new Error('name is required for create');
             const nodeType = data.type || 'hysteria';
-            const existing = await HyNode.findOne({ ip: data.ip, type: nodeType });
-            if (existing) return { error: `A ${nodeType} node with this IP already exists`, code: 409 };
+
+            if (nodeType !== 'virtual' && !data.ip) {
+                throw new Error('ip is required for hysteria and xray nodes');
+            }
+
+            // Validate virtual-specific fields up-front so the caller gets a
+            // clear 400 instead of a generic ValidationError 500 from save().
+            if (nodeType === 'virtual') {
+                const v = data.virtual || {};
+                const selectMode = v.selectMode === 'group' ? 'group' : 'manual';
+                if (selectMode === 'group' && !v.sourceGroup) {
+                    return { error: 'Virtual node (group): sourceGroup required', code: 400 };
+                }
+                if (selectMode === 'manual' && (!Array.isArray(v.sources) || v.sources.length === 0)) {
+                    return { error: 'Virtual node (manual): at least one source required', code: 400 };
+                }
+            } else {
+                const existing = await HyNode.findOne({ ip: data.ip, type: nodeType });
+                if (existing) return { error: `A ${nodeType} node with this IP already exists`, code: 409 };
+            }
 
             const statsSecret = cryptoService.generateNodeSecret();
 
-            // Resolve SSH: use caller-provided credentials, or inherit from sibling node on same IP
+            // Resolve SSH: virtual has no remote host; for hysteria/xray either use
+            // caller-provided credentials or inherit from a sibling on the same IP.
             const rawSsh = data.ssh || {};
             let resolvedSsh;
-            if (rawSsh.password || rawSsh.privateKey) {
+            if (nodeType === 'virtual') {
+                resolvedSsh = cryptoService.encryptSshCredentials({});
+            } else if (rawSsh.password || rawSsh.privateKey) {
                 resolvedSsh = cryptoService.encryptSshCredentials(rawSsh);
             } else {
                 const sibling = await HyNode.findOne({ ip: data.ip, type: { $ne: nodeType } }).select('ssh').lean();
@@ -243,7 +280,7 @@ async function manageNode(args, emit) {
 
             const nodeData = {
                 name: data.name,
-                ip: data.ip,
+                ip: nodeType === 'virtual' ? null : data.ip,
                 type: nodeType,
                 domain: data.domain || '',
                 sni: data.sni || '',
@@ -255,10 +292,28 @@ async function manageNode(args, emit) {
                 ssh: resolvedSsh,
                 active: true,
                 status: 'offline',
-                cascadeRole: data.cascadeRole || 'standalone',
+                cascadeRole: nodeType === 'virtual' ? 'standalone' : (data.cascadeRole || 'standalone'),
                 country: data.country || '',
             };
             if (data.initScript !== undefined) nodeData.initScript = data.initScript;
+
+            if (nodeType === 'virtual') {
+                const v = data.virtual || {};
+                nodeData.virtual = {
+                    selectMode: v.selectMode === 'group' ? 'group' : 'manual',
+                    sources: Array.isArray(v.sources) ? v.sources : [],
+                    sourceGroup: v.sourceGroup || null,
+                    strategy: v.strategy || 'leastLoad',
+                    fallbackToFirst: v.fallbackToFirst !== false,
+                    observatory: {
+                        destination: (v.observatory?.destination || '').trim() || 'http://www.gstatic.com/generate_204',
+                        connectivity: (v.observatory?.connectivity || '').trim(),
+                        interval: (v.observatory?.interval || '').trim() || '1m',
+                        timeout: (v.observatory?.timeout || '').trim() || '5s',
+                        sampling: parseInt(v.observatory?.sampling, 10) || 3,
+                    },
+                };
+            }
 
             const hy2Keys = [
                 'hopInterval', 'acme', 'masquerade', 'bandwidth',
@@ -271,7 +326,7 @@ async function manageNode(args, emit) {
             const node = new HyNode(nodeData);
             await node.save();
             await invalidateNodesCache();
-            logger.info(`[MCP] Created node ${data.name} (${data.ip})`);
+            logger.info(`[MCP] Created ${nodeType} node ${data.name} (${nodeType === 'virtual' ? 'virtual' : data.ip})`);
             return { success: true, node };
         }
 
@@ -279,6 +334,7 @@ async function manageNode(args, emit) {
             if (!id) throw new Error('id is required for update');
             const allowed = [
                 'name', 'domain', 'sni', 'port', 'portRange', 'groups', 'active', 'country', 'cascadeRole', 'type',
+                'virtual',
                 'hopInterval', 'acme', 'masquerade', 'bandwidth',
                 'ignoreClientBandwidth', 'speedTest', 'disableUDP',
                 'udpIdleTimeout', 'sniff', 'quic', 'resolver', 'acl', 'aclRules', 'useTlsFiles',
@@ -288,12 +344,37 @@ async function manageNode(args, emit) {
             for (const k of allowed) {
                 if (data[k] !== undefined) updates[k] = data[k];
             }
+
+            // findByIdAndUpdate skips pre('validate') hooks, so re-implement
+            // type-aware invariants here. Mirror the behaviour of routes/nodes.js PUT.
+            const existing = await HyNode.findById(id).select('type ip virtual').lean();
+            if (!existing) return { error: `Node '${id}' not found`, code: 404 };
+
+            const nextType = updates.type || existing.type;
+            const nextVirtual = updates.virtual !== undefined ? updates.virtual : existing.virtual;
+            const nextIp = existing.ip;
+
+            if (nextType === 'virtual') {
+                const v = nextVirtual || {};
+                if (v.selectMode === 'group' && !v.sourceGroup) {
+                    return { error: 'Virtual node (group): sourceGroup required', code: 400 };
+                }
+                if (v.selectMode !== 'group' && (!Array.isArray(v.sources) || v.sources.length === 0)) {
+                    return { error: 'Virtual node (manual): at least one source required', code: 400 };
+                }
+                updates.ip = null;
+            } else if (!nextIp) {
+                return { error: `Node type ${nextType} requires ip`, code: 400 };
+            }
+
             const node = await HyNode.findByIdAndUpdate(id, { $set: updates }, { new: true })
                 .populate('groups', 'name color');
             if (!node) return { error: `Node '${id}' not found`, code: 404 };
             await invalidateNodesCache();
 
             // Auto-push config to the node if any config-affecting field changed.
+            // Virtual nodes have no remote service to push to — schedulePush will
+            // simply emit a no-op via the existing type guards in syncService.
             getSyncService().schedulePush(node._id, updates);
 
             logger.info(`[MCP] Updated node ${node.name}`);
@@ -312,6 +393,11 @@ async function manageNode(args, emit) {
 
         case 'sync': {
             if (!id) throw new Error('id is required for sync');
+            const probe = await HyNode.findById(id).select('type').lean();
+            if (!probe) return { error: `Node '${id}' not found`, code: 404 };
+            if (probe.type === 'virtual') {
+                return { error: 'Virtual nodes have no remote service to sync', code: 400 };
+            }
             const node = await HyNode.findByIdAndUpdate(id, { $set: { status: 'syncing' } }, { new: true });
             if (!node) return { error: `Node '${id}' not found`, code: 404 };
             getSyncService().updateNodeConfig(node).catch(err => {
@@ -326,6 +412,11 @@ async function manageNode(args, emit) {
             if (!id) throw new Error('id is required for setup');
             const node = await HyNode.findById(id);
             if (!node) return { error: `Node '${id}' not found`, code: 404 };
+
+            if (node.type === 'virtual') {
+                return { error: 'Virtual nodes have no remote server to set up', code: 400 };
+            }
+
             if (!node.ssh?.password && !node.ssh?.privateKey) {
                 return { error: 'SSH credentials not configured', code: 400 };
             }
@@ -371,6 +462,9 @@ async function manageNode(args, emit) {
             if (!id) throw new Error('id is required for update_config');
             const node = await HyNode.findById(id);
             if (!node) return { error: `Node '${id}' not found`, code: 404 };
+            if (node.type === 'virtual') {
+                return { error: 'Virtual nodes have no remote service to push config to', code: 400 };
+            }
             emit('progress', { message: `Updating config on ${node.name}...` });
             const success = await getSyncService().updateNodeConfig(node);
             if (success) return { success: true, message: 'Config updated' };
@@ -388,6 +482,9 @@ async function executeSsh(args, emit) {
 
     const node = await HyNode.findById(nodeId);
     if (!node) return { error: `Node '${nodeId}' not found`, code: 404 };
+    if (node.type === 'virtual') {
+        return { error: 'Virtual nodes have no SSH host', code: 400 };
+    }
 
     emit('progress', { message: `Connecting to ${node.name} (${node.ip})...` });
 
@@ -453,6 +550,9 @@ async function sshSession(args, emit) {
             if (!nodeId) throw new Error('nodeId is required for start');
             const node = await HyNode.findById(nodeId);
             if (!node) return { error: `Node '${nodeId}' not found`, code: 404 };
+            if (node.type === 'virtual') {
+                return { error: 'Virtual nodes have no SSH host', code: 400 };
+            }
 
             const sid = require('crypto').randomUUID();
             emit('progress', { message: `Connecting to ${node.name} (${node.ip})...` });

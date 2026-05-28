@@ -25,14 +25,76 @@ function addCommonSchemas(target) {
                 error: { type: 'string', example: 'Too many attempts. Try again in 15 minutes.' },
             },
         },
+        VirtualConfig: {
+            type: 'object',
+            description: `Configuration for a **virtual** node — a load-balancer entry that
+groups one or more real (\`hysteria\`/\`xray\`) sibling nodes into a single
+"Auto" connection in the user's subscription.
+
+Behaviour by client:
+- **HAPP / Streisand / Xray-core based clients** — receive the balancer as
+  an \`xray-json\` profile array entry with \`routing.balancers\` +
+  (\`burstObservatory\` for \`leastPing\`/\`leastLoad\`).
+- **sing-box / Hiddify / NekoBox** — \`type: urltest\` outbound over the
+  source tags (Sing-box has no native round-robin).
+- **Clash Meta / Mihomo** — \`url-test\` proxy-group (\`load-balance\` with
+  \`strategy: consistent-hashing\` for \`random\`).
+- **v2ray-json / plain URI list** — virtual nodes are skipped; only their
+  source nodes appear individually.
+
+Virtual nodes carry no IP/SSH/agent and never run health checks themselves.`,
+            properties: {
+                selectMode: {
+                    type: 'string',
+                    enum: ['manual', 'group'],
+                    default: 'manual',
+                    description: '`manual`: pick from `sources`. `group`: dynamically include every active node in `sourceGroup`.',
+                },
+                sources: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'HyNode `_id`s — required when `selectMode=manual`. Must reference real (non-virtual) nodes.',
+                    example: ['64a1b2c3d4e5f6a7b8c9d0e2', '64a1b2c3d4e5f6a7b8c9d0e3'],
+                },
+                sourceGroup: {
+                    type: 'string',
+                    description: 'ServerGroup `_id` — required when `selectMode=group`.',
+                },
+                strategy: {
+                    type: 'string',
+                    enum: ['random', 'roundRobin', 'leastPing', 'leastLoad'],
+                    default: 'leastLoad',
+                    description: 'Xray balancer strategy. `leastPing`/`leastLoad` automatically enable a `burstObservatory`.',
+                },
+                fallbackToFirst: {
+                    type: 'boolean',
+                    default: true,
+                    description: 'When true, sets `fallbackTag` to the first source so traffic still flows when all observed peers are unhealthy.',
+                },
+                observatory: {
+                    type: 'object',
+                    description: '`burstObservatory.pingConfig` parameters (Xray). Used by HAPP/Xray-core clients only; ignored by sing-box/Clash.',
+                    properties: {
+                        destination: { type: 'string', example: 'http://www.gstatic.com/generate_204', description: 'Probe URL — must return HTTP 204.' },
+                        connectivity: { type: 'string', example: '', description: 'Local connectivity check URL — only probed when `destination` fails. Empty = disabled.' },
+                        interval: { type: 'string', example: '1m', description: 'Probe interval (Xray time format, min `10s`).' },
+                        timeout: { type: 'string', example: '5s', description: 'Probe timeout.' },
+                        sampling: { type: 'integer', example: 3, description: 'Number of recent probe results to keep.' },
+                    },
+                },
+            },
+        },
         NodeCreate: {
             type: 'object',
-            required: ['name', 'ip'],
-            description: 'Payload for creating a Hysteria or Xray node.',
+            required: ['name'],
+            description: `Payload for creating a Hysteria, Xray, or Virtual (load-balancer) node.
+
+\`ip\` is **required** for \`hysteria\`/\`xray\` and **must be omitted** for \`virtual\`.
+For \`virtual\` you must additionally pass a non-empty \`virtual\` object.`,
             properties: {
                 name: { type: 'string', example: 'Germany 1', description: 'Display name shown in panel and subscriptions.' },
-                ip: { type: 'string', example: '203.0.113.10', description: 'Server IP address.' },
-                type: { type: 'string', enum: ['hysteria', 'xray'], default: 'hysteria', description: 'Node protocol family.' },
+                ip: { type: 'string', example: '203.0.113.10', description: 'Server IP address. Required for hysteria/xray, ignored (always null) for virtual.' },
+                type: { type: 'string', enum: ['hysteria', 'xray', 'virtual'], default: 'hysteria', description: 'Node protocol family. `virtual` = load-balancer entry over real sibling nodes (no remote server).' },
                 domain: { type: 'string', example: 'de.example.com', description: 'Public domain for TLS/SNI.' },
                 sni: { type: 'string', example: 'de.example.com', description: 'Optional SNI override.' },
                 port: { type: 'integer', example: 443, description: 'Main service port.' },
@@ -40,9 +102,10 @@ function addCommonSchemas(target) {
                 statsPort: { type: 'integer', example: 9999, description: 'Hysteria stats API port.' },
                 groups: { type: 'array', items: { type: 'string' }, example: ['64a1b2c3d4e5f6a7b8c9d0e1'], description: 'Server group ObjectIds.' },
                 maxOnlineUsers: { type: 'integer', example: 0, description: '0 = unlimited.' },
-                ssh: { type: 'object', description: 'SSH credentials. Password or privateKey can be provided.' },
+                ssh: { type: 'object', description: 'SSH credentials. Password or privateKey can be provided. Ignored for virtual nodes.' },
                 xray: { type: 'object', description: 'Xray-specific settings when `type=xray`.' },
-                cascadeRole: { type: 'string', enum: ['standalone', 'portal', 'bridge'], default: 'standalone' },
+                virtual: { $ref: '#/components/schemas/VirtualConfig' },
+                cascadeRole: { type: 'string', enum: ['standalone', 'portal', 'bridge'], default: 'standalone', description: 'Always forced to `standalone` for virtual nodes.' },
                 country: { type: 'string', example: 'DE' },
                 comment: { type: 'string', maxLength: 500, example: 'Hetzner FSN1 — backup node', description: 'Free-form operator note shown in panel UI.' },
                 rankingCoefficient: { type: 'number', example: 1 },
@@ -50,7 +113,11 @@ function addCommonSchemas(target) {
         },
         NodeUpdate: {
             type: 'object',
-            description: 'Partial node update payload. Any omitted field is left unchanged.',
+            description: `Partial node update payload. Any omitted field is left unchanged.
+
+When changing \`type\` to \`virtual\`, you must also pass a valid \`virtual\` object;
+the API will clear \`ip\` automatically. When the resulting \`type\` is not virtual,
+\`ip\` (kept from the existing document or supplied here) must be non-empty.`,
             properties: {
                 name: { type: 'string' },
                 domain: { type: 'string' },
@@ -64,8 +131,9 @@ function addCommonSchemas(target) {
                 settings: { type: 'object' },
                 active: { type: 'boolean' },
                 rankingCoefficient: { type: 'number' },
-                type: { type: 'string', enum: ['hysteria', 'xray'] },
+                type: { type: 'string', enum: ['hysteria', 'xray', 'virtual'] },
                 xray: { type: 'object' },
+                virtual: { $ref: '#/components/schemas/VirtualConfig' },
                 cascadeRole: { type: 'string' },
                 country: { type: 'string' },
                 comment: { type: 'string', maxLength: 500 },
@@ -255,6 +323,41 @@ function addCommonExamples(target) {
                 port: 443,
                 portRange: '20000-50000',
                 groups: ['64a1b2c3d4e5f6a7b8c9d0e1'],
+            },
+        },
+        NodeCreateVirtualRequest: {
+            summary: 'Create a virtual (load-balancer) node',
+            description: 'No `ip`/`ssh` required. Lists three real sibling nodes, balances by least observed latency.',
+            value: {
+                name: 'Auto · EU',
+                type: 'virtual',
+                groups: ['64a1b2c3d4e5f6a7b8c9d0e1'],
+                country: 'EU',
+                virtual: {
+                    selectMode: 'manual',
+                    sources: ['64a1b2c3d4e5f6a7b8c9d0e2', '64a1b2c3d4e5f6a7b8c9d0e3', '64a1b2c3d4e5f6a7b8c9d0e4'],
+                    strategy: 'leastPing',
+                    fallbackToFirst: true,
+                    observatory: {
+                        destination: 'http://www.gstatic.com/generate_204',
+                        interval: '1m',
+                        timeout: '5s',
+                        sampling: 3,
+                    },
+                },
+            },
+        },
+        NodeCreateVirtualGroupRequest: {
+            summary: 'Create a virtual node tied to a server group',
+            description: 'In `group` mode the source list is recomputed dynamically: any active node currently in the referenced group is included.',
+            value: {
+                name: 'Auto · Premium pool',
+                type: 'virtual',
+                virtual: {
+                    selectMode: 'group',
+                    sourceGroup: '64a1b2c3d4e5f6a7b8c9d0e1',
+                    strategy: 'leastLoad',
+                },
             },
         },
         NodeUpdateRequest: {
@@ -659,7 +762,8 @@ Management API for [C³ CELERITY](https://github.com/ClickDevTech/hysteria-panel
 3. Read panel totals with \`GET /stats\` and node health with \`GET /nodes/{id}/status\`.
 4. Disable an expired user with \`POST /users/{userId}/disable\` and clear devices with \`DELETE /users/{userId}/devices\`.
 5. Build multi-hop routing with \`POST /cascade/links\`, then deploy with \`POST /cascade/chain/deploy\`.
-6. Automate panel actions through MCP using \`POST /mcp\` and \`tools/list\`.
+6. Group several real nodes into a single auto-balancer entry with \`POST /nodes\` (\`type=virtual\`); HAPP/Xray-core clients receive an Xray balancer + observatory profile, sing-box/Clash get a \`urltest\`/\`url-test\` group.
+7. Automate panel actions through MCP using \`POST /mcp\` and \`tools/list\`.
 
 ## Authentication
 
@@ -1741,12 +1845,25 @@ These endpoints are not under \`/api\` and are not part of this specification:
             post: {
                 tags: ['Nodes'],
                 summary: 'Create node',
-                description: 'Creates a Hysteria or Xray node. `statsSecret` is generated by the server. Returns 409 if the same IP already has a node of the same `type`.',
+                description: `Creates a Hysteria, Xray, or Virtual (load-balancer) node.
+
+- **\`type=hysteria\`** (default) / **\`type=xray\`** — \`ip\` required. \`statsSecret\` is
+  generated server-side. Returns 409 if the same IP already has a node of the same \`type\`.
+- **\`type=virtual\`** — pure logical balancer over real sibling nodes. **Do not** pass
+  \`ip\` or \`ssh\`; pass a \`virtual\` object instead. Virtual nodes never run setup,
+  health checks, traffic collection, or restart — they only appear in subscriptions.
+
+See the request body examples panel for both flavours.`,
                 requestBody: {
                     required: true,
                     content: {
                         'application/json': {
                             schema: { $ref: '#/components/schemas/NodeCreate' },
+                            examples: {
+                                hysteria: { $ref: '#/components/examples/NodeCreateRequest' },
+                                virtualManual: { $ref: '#/components/examples/NodeCreateVirtualRequest' },
+                                virtualGroup: { $ref: '#/components/examples/NodeCreateVirtualGroupRequest' },
+                            },
                         },
                     },
                 },
@@ -1758,8 +1875,11 @@ These endpoints are not under \`/api\` and are not part of this specification:
                             'application/json': {
                                 schema: { $ref: '#/components/schemas/Error' },
                                 examples: {
-                                    required: { value: { error: 'name и ip обязательны' } },
-                                    badType: { value: { error: 'type must be hysteria or xray' } },
+                                    required: { value: { error: 'name is required' } },
+                                    missingIp: { value: { error: 'ip is required for hysteria and xray nodes' } },
+                                    badType: { value: { error: 'type must be hysteria, xray, or virtual' } },
+                                    virtualNoSources: { value: { error: 'Virtual node (manual): at least one source required' } },
+                                    virtualNoGroup: { value: { error: 'Virtual node (group): sourceGroup required' } },
                                 },
                             },
                         },
@@ -1791,7 +1911,7 @@ These endpoints are not under \`/api\` and are not part of this specification:
                 responses: {
                     200: {
                         description: 'Matching nodes',
-                        content: { 'application/json': { schema: { type: 'object', properties: { nodes: { type: 'array', items: { type: 'object', properties: { _id: { type: 'string' }, type: { type: 'string', enum: ['hysteria', 'xray'] }, name: { type: 'string' } } } } } } } },
+                        content: { 'application/json': { schema: { type: 'object', properties: { nodes: { type: 'array', items: { type: 'object', properties: { _id: { type: 'string' }, type: { type: 'string', enum: ['hysteria', 'xray', 'virtual'] }, name: { type: 'string' } } } } } } } },
                     },
                     401: { $ref: '#/components/responses/Unauthorized' },
                     403: { $ref: '#/components/responses/Forbidden' },
@@ -1936,7 +2056,7 @@ These endpoints are not under \`/api\` and are not part of this specification:
             post: {
                 tags: ['Nodes'],
                 summary: 'Sync specific node',
-                description: 'Marks the node as `syncing` and starts `updateNodeConfig` in the background (SSH or agent depending on node type). Response is returned immediately.',
+                description: 'Marks the node as `syncing` and starts `updateNodeConfig` in the background (SSH or agent depending on node type). Response is returned immediately. Virtual nodes return **400** — they have no remote service to sync.',
                 responses: {
                     200: {
                         description: 'Sync started',
@@ -1969,6 +2089,8 @@ These endpoints are not under \`/api\` and are not part of this specification:
 **Hysteria nodes** (\`type=hysteria\`, default): optional body flags \`installHysteria\`, \`setupPortHopping\`, \`restartService\` (all default \`true\`). Installs/updates Hysteria, uploads config, configures port hopping, restarts \`hysteria-server\`.
 
 **Xray nodes** (\`type=xray\`): runs Xray agent setup; only \`restartService\` from the body is used.
+
+**Virtual nodes** (\`type=virtual\`): not supported — returns **400** because virtual nodes have no remote service to provision.
 
 **⚠️ Long-running:** typically **30 seconds to 2 minutes**. Set client timeout to at least **3 minutes**.
 

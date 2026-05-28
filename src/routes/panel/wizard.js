@@ -377,6 +377,10 @@ async function _runBootstrap(taskId, nodeIds) {
             allSuccess = false;
             continue;
         }
+        if (node.type === 'virtual') {
+            pushLog(`[Skip] Virtual node ${node.name}: nothing to install`);
+            continue;
+        }
 
         pushLog(`\n--- Setting up ${node.type.toUpperCase()} node: ${node.name} (${node.ip}) ---`);
 
