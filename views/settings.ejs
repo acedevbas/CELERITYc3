@@ -24,6 +24,7 @@
             { id: 'security',     icon: 'ti-shield-lock',     label: t('settings.tabSecurity')     || 'Безопасность',  desc: t('settings.tabSecurityDesc')     || 'Администратор, 2FA, API-ключи, MCP и вебхуки.' },
             { id: 'backup',       icon: 'ti-database-export', label: t('settings.tabBackup')       || 'Бэкапы',        desc: t('settings.tabBackupDesc')       || 'Локальные и S3 бэкапы, расписание, восстановление.' },
             { id: 'maintenance',  icon: 'ti-tool',            label: t('settings.tabMaintenance')  || 'Обслуживание',  desc: t('settings.tabMaintenanceDesc')  || 'Обслуживание, кэш, сброс счётчиков и опасные операции.' },
+            { id: 'migration',    icon: 'ti-transfer-in',     label: t('settings.tabMigration')    || 'Миграция',      desc: t('settings.tabMigrationDesc')    || 'Бесшовный импорт из Marzban — старые ссылки продолжают работать.' },
         ];
     %>
 
@@ -61,6 +62,8 @@
     <%- include('partials/settings/backup') %>
 
     <%- include('partials/settings/maintenance') %>
+
+    <%- include('partials/settings/migration') %>
 </div>
 
 <div id="toast" class="toast"></div>
@@ -129,9 +132,14 @@ const i18n = {
 
         if (persist) localStorage.setItem('settings-tab', tab.dataset.tab);
 
-        // Smooth-scroll into the active tab pill (mobile horizontal scroll)
+        // Smooth-scroll the active tab pill into view inside the tabbar only
+        // if it is partially off-screen. `inline:'nearest'` avoids forcing a
+        // horizontal page scroll when the tabbar already contains the pill —
+        // `inline:'center'` here would propagate the scroll up to the page
+        // root and shift the whole layout sideways when the tabbar barely
+        // overflows.
         try {
-            tab.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+            tab.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
         } catch (_) {}
     }
 
