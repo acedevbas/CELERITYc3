@@ -300,7 +300,7 @@ curl -X POST https://your-panel.com/api/mcp \
 
 > Требуется scope: `sync:write`
 
-Управляет split-routing правилами, которые попадают в генерируемые подписки. Можно пустить российские сайты/IP напрямую, заблокировать рекламу или изменить split DNS. При изменении routing кэш подписок сбрасывается сразу.
+Управляет split-routing правилами, которые попадают в генерируемые подписки. Можно пустить российские сайты/IP напрямую, заблокировать рекламу или изменить split DNS. Preset `bypass-ru` использует поддерживаемый список `itdoginfo/allow-domains` (`geosite:russia-outside`) для российских ресурсов, доступных только из российских подсетей, плюс `SagerNet` `category-ru`/`geoip:ru` и fallback по RU TLD. При изменении routing кэш подписок сбрасывается сразу.
 
 **Доступные действия:** `enable` | `disable` | `apply_preset` | `add_rule` | `remove_rule` | `replace_rules` | `set_dns`
 

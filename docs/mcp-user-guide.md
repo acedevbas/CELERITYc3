@@ -300,7 +300,7 @@ Reads safe settings sections without returning secrets.
 
 > `sync:write` scope required
 
-Manages split routing rules used in generated subscriptions. This can send Russian sites/IPs directly, block ads, or change split DNS. Updating routing invalidates subscription cache immediately.
+Manages split routing rules used in generated subscriptions. This can send Russian sites/IPs directly, block ads, or change split DNS. The `bypass-ru` preset uses the maintained `itdoginfo/allow-domains` list (`geosite:russia-outside`) for Russian resources available only from Russian IP ranges, plus `SagerNet` `category-ru`/`geoip:ru` and RU TLD fallbacks. Updating routing invalidates subscription cache immediately.
 
 **Available Actions:** `enable` | `disable` | `apply_preset` | `add_rule` | `remove_rule` | `replace_rules` | `set_dns`
 

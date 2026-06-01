@@ -22,6 +22,27 @@ const { extractHwidHeaders } = require('../utils/hwidHeaders');
 const hwidDeviceService = require('../services/hwidDeviceService');
 const webhookService = require('../services/webhookService');
 
+const CUSTOM_GEOSITE_RULESETS = {
+    // ITDog keeps this list updated for Russian resources available only
+    // from Russian IP ranges. See https://github.com/itdoginfo/allow-domains
+    'russia-outside': {
+        singboxUrl: 'https://github.com/itdoginfo/allow-domains/releases/latest/download/russia_outside.srs',
+        clashUrl: 'https://github.com/itdoginfo/allow-domains/releases/latest/download/russia_outside_domain.mrs',
+        clashFormat: 'mrs',
+        clashBehavior: 'domain',
+        updateInterval: '1d',
+        clashInterval: 86400,
+    },
+    'russia-inside': {
+        singboxUrl: 'https://github.com/itdoginfo/allow-domains/releases/latest/download/russia_inside.srs',
+        clashUrl: 'https://github.com/itdoginfo/allow-domains/releases/latest/download/russia_inside_domain.mrs',
+        clashFormat: 'mrs',
+        clashBehavior: 'domain',
+        updateInterval: '1d',
+        clashInterval: 86400,
+    },
+};
+
 // ==================== HELPERS ====================
 
 function detectFormat(userAgent) {
@@ -649,13 +670,17 @@ function buildSingboxRules(rules) {
 
     const ruleSets = [...ruleSetTags].map(tag => {
         const isGeoip = tag.startsWith('geoip-');
+        const value = tag.replace(/^(geoip|geosite)-/, '');
+        const custom = !isGeoip ? CUSTOM_GEOSITE_RULESETS[value] : null;
         const repo = isGeoip ? 'sing-geoip' : 'sing-geosite';
-        return {
+        const ruleSet = {
             tag,
             type: 'remote',
             format: 'binary',
-            url: `https://raw.githubusercontent.com/SagerNet/${repo}/rule-set/${tag}.srs`,
+            url: custom?.singboxUrl || `https://raw.githubusercontent.com/SagerNet/${repo}/rule-set/${tag}.srs`,
         };
+        if (custom?.updateInterval) ruleSet.update_interval = custom.updateInterval;
+        return ruleSet;
     });
 
     return { rules: resultRules, ruleSets };
@@ -693,12 +718,18 @@ function buildSingboxDns(rules, dns) {
     if (suffixes.length > 0) dnsRules.push({ domain_suffix: suffixes, server: 'dns-direct' });
     if (geositeTags.length > 0) dnsRules.push({ rule_set: geositeTags, server: 'dns-direct' });
 
-    const ruleSets = [...ruleSetTags].map(tag => ({
-        tag,
-        type: 'remote',
-        format: 'binary',
-        url: `https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/${tag}.srs`,
-    }));
+    const ruleSets = [...ruleSetTags].map(tag => {
+        const value = tag.replace(/^geosite-/, '');
+        const custom = CUSTOM_GEOSITE_RULESETS[value];
+        const ruleSet = {
+            tag,
+            type: 'remote',
+            format: 'binary',
+            url: custom?.singboxUrl || `https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/${tag}.srs`,
+        };
+        if (custom?.updateInterval) ruleSet.update_interval = custom.updateInterval;
+        return ruleSet;
+    });
 
     return { servers, rules: dnsRules, final: 'dns-remote', ruleSets };
 }
@@ -729,9 +760,18 @@ function _parseSingboxDnsServer(addr, tag, domainResolver) {
  * Convert routing rules to Clash Meta rules array strings.
  */
 function buildClashRules(rules) {
-    if (!rules || rules.length === 0) return [];
+    return buildClashRouting(rules).rules;
+}
+
+/**
+ * Build Mihomo/Clash Meta routing rules plus remote rule-providers for custom
+ * geosite lists that are not part of the client's bundled geodata.
+ */
+function buildClashRouting(rules) {
+    if (!rules || rules.length === 0) return { rules: [], providers: [] };
 
     const result = [];
+    const providers = new Map();
     for (const r of rules) {
         if (!r.enabled) continue;
         const target = r.action === 'block' ? 'REJECT' : 'DIRECT';
@@ -739,12 +779,30 @@ function buildClashRules(rules) {
             case 'domain_suffix':  result.push(`DOMAIN-SUFFIX,${r.value},${target}`); break;
             case 'domain_keyword': result.push(`DOMAIN-KEYWORD,${r.value},${target}`); break;
             case 'domain':         result.push(`DOMAIN,${r.value},${target}`); break;
-            case 'geosite':        result.push(`GEOSITE,${r.value},${target}`); break;
+            case 'geosite': {
+                const custom = CUSTOM_GEOSITE_RULESETS[r.value];
+                if (custom?.clashUrl) {
+                    const tag = `geosite-${r.value}`;
+                    providers.set(tag, {
+                        tag,
+                        type: 'http',
+                        behavior: custom.clashBehavior || 'domain',
+                        format: custom.clashFormat || 'mrs',
+                        url: custom.clashUrl,
+                        path: `./rule-providers/${tag}.${custom.clashFormat || 'mrs'}`,
+                        interval: custom.clashInterval || 86400,
+                    });
+                    result.push(`RULE-SET,${tag},${target}`);
+                } else {
+                    result.push(`GEOSITE,${r.value},${target}`);
+                }
+                break;
+            }
             case 'geoip':          result.push(`GEOIP,${r.value},${target},no-resolve`); break;
             case 'ip_cidr':        result.push(`IP-CIDR,${r.value},${target},no-resolve`); break;
         }
     }
-    return result;
+    return { rules: result, providers: [...providers.values()] };
 }
 
 /**
@@ -1036,7 +1094,12 @@ function generateClashYAML(user, nodes, routing) {
         }
         yaml += '\n' + dnsLines.join('\n') + '\n';
 
-        const clashRules = buildClashRules(routing.rules);
+        const clashRouting = buildClashRouting(routing.rules);
+        if (clashRouting.providers.length > 0) {
+            yaml += '\nrule-providers:\n';
+            yaml += clashRouting.providers.map(p => `  ${p.tag}:\n    type: ${p.type}\n    behavior: ${p.behavior}\n    format: ${p.format}\n    url: "${p.url}"\n    path: ${p.path}\n    interval: ${p.interval}`).join('\n') + '\n';
+        }
+        const clashRules = clashRouting.rules;
         if (clashRules.length > 0) {
             yaml += '\nrules:\n';
             yaml += clashRules.map(r => `  - ${r}`).join('\n') + '\n';

@@ -14,15 +14,12 @@ const RULE_ACTIONS = ['direct', 'block'];
 
 const ROUTING_PRESETS = {
     'bypass-ru': [
-        { action: 'direct', type: 'geosite', value: 'category-ru', comment: 'Russian sites DB', enabled: true },
+        { action: 'direct', type: 'geosite', value: 'russia-outside', comment: 'ITDog Russia outside', enabled: true },
+        { action: 'direct', type: 'geosite', value: 'category-ru', comment: 'SagerNet Russian sites', enabled: true },
         { action: 'direct', type: 'geoip', value: 'ru', comment: 'Russian IPs', enabled: true },
-        { action: 'direct', type: 'domain_suffix', value: '.ru', comment: '', enabled: true },
-        { action: 'direct', type: 'domain_suffix', value: '.su', comment: '', enabled: true },
-        { action: 'direct', type: 'domain_suffix', value: '.xn--p1ai', comment: '.рф', enabled: true },
-        { action: 'direct', type: 'domain', value: 'match.tv', comment: '', enabled: true },
-        { action: 'direct', type: 'domain', value: 'ntvplus.tv', comment: '', enabled: true },
-        { action: 'direct', type: 'domain', value: 'ozon.travel', comment: '', enabled: true },
-        { action: 'direct', type: 'domain', value: 'lenta.tech', comment: '', enabled: true },
+        { action: 'direct', type: 'domain_suffix', value: '.ru', comment: 'Fallback TLD', enabled: true },
+        { action: 'direct', type: 'domain_suffix', value: '.su', comment: 'Fallback TLD', enabled: true },
+        { action: 'direct', type: 'domain_suffix', value: '.xn--p1ai', comment: '.рф fallback', enabled: true },
         { action: 'direct', type: 'geoip', value: 'private', comment: 'LAN', enabled: true },
     ],
     'bypass-lan': [
