@@ -27,7 +27,7 @@ const sshSessions = new Map();
 // Fields excluded from all node queries returned to MCP clients. Keep the
 // explicit sanitizer below as a second guard for nested arrays and populated
 // documents where select() exclusions can be easy to miss.
-const NODE_SAFE_SELECT = '-ssh.password -ssh.privateKey -xray.realityPrivateKey -xray.agentToken -xray.extraInbounds.realityPrivateKey -statsSecret';
+const NODE_SAFE_SELECT = '-ssh.password -ssh.privateKey -obfs.password -xray.realityPrivateKey -xray.agentToken -xray.extraInbounds.realityPrivateKey -statsSecret';
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
@@ -212,6 +212,10 @@ function sanitizeNodeForMcp(node) {
     if (raw.ssh) {
         delete raw.ssh.password;
         delete raw.ssh.privateKey;
+    }
+
+    if (raw.obfs) {
+        delete raw.obfs.password;
     }
 
     delete raw.statsSecret;
