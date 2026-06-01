@@ -895,7 +895,10 @@ function buildClashDns(rules, dns) {
     for (const r of (rules || [])) {
         if (!r.enabled || r.action !== 'direct') continue;
         if (r.type === 'domain_suffix') policy[`+${r.value}`]    = domestic;
-        if (r.type === 'geosite')       policy[`geosite:${r.value}`] = domestic;
+        if (r.type === 'geosite') {
+            const custom = CUSTOM_GEOSITE_RULESETS[r.value];
+            policy[custom?.clashUrl ? `rule-set:geosite-${r.value}` : `geosite:${r.value}`] = domestic;
+        }
     }
 
     return {
