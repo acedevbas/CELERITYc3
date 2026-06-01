@@ -1350,6 +1350,8 @@
     "toolExecuteSsh": "Выполнить SSH-команду на ноде",
     "toolSshSession": "Интерактивная SSH-сессия",
     "toolSystemAction": "Системные операции (синхронизация, кэш, бэкап)",
+    "toolQuerySettings": "Чтение безопасных настроек панели",
+    "toolManageRouting": "Управление правилами маршрутизации подписок",
     "toolGetTopology": "Топология сети",
     "toolHealthCheck": "Проверка состояния панели",
     "scopeRequired": "Требуется scope: mcp:enabled",

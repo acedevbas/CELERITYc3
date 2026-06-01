@@ -21,6 +21,7 @@ const cascadeTools = require('../mcp/tools/cascade');
 const systemTools = require('../mcp/tools/system');
 const statsTools = require('../mcp/tools/stats');
 const logsTools = require('../mcp/tools/logs');
+const settingsTools = require('../mcp/tools/settings');
 
 // ─── Tool Definitions ────────────────────────────────────────────────────────
 // Each entry: { description, requiredScope, inputSchema (JSON Schema), handler }
@@ -236,6 +237,89 @@ const TOOLS = {
         },
     },
 
+    query_settings: {
+        description: 'Read safe panel settings. Supports routing, loadBalancing, subscription, or all safe sections.',
+        requiredScope: 'stats:read',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                section: {
+                    type: 'string',
+                    enum: ['routing', 'loadBalancing', 'subscription', 'all'],
+                    default: 'routing',
+                    description: 'Settings section to read',
+                },
+            },
+        },
+    },
+
+    manage_routing: {
+        description: 'Manage subscription routing rules: enable/disable, apply presets such as bypass-ru, add/remove/replace rules, or set split DNS.',
+        requiredScope: 'sync:write',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                action: {
+                    type: 'string',
+                    enum: ['enable', 'disable', 'apply_preset', 'add_rule', 'remove_rule', 'replace_rules', 'set_dns'],
+                },
+                preset: {
+                    type: 'string',
+                    enum: ['bypass-ru', 'bypass-lan', 'block-ads'],
+                    description: 'Preset name for action=apply_preset',
+                },
+                rule: {
+                    type: 'object',
+                    description: 'Rule for action=add_rule',
+                    properties: {
+                        action: { type: 'string', enum: ['direct', 'block'], default: 'direct' },
+                        type: { type: 'string', enum: ['domain_suffix', 'domain_keyword', 'domain', 'geosite', 'geoip', 'ip_cidr'] },
+                        value: { type: 'string' },
+                        comment: { type: 'string' },
+                        enabled: { type: 'boolean', default: true },
+                    },
+                },
+                rules: {
+                    type: 'array',
+                    description: 'Rules for action=replace_rules',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            action: { type: 'string', enum: ['direct', 'block'], default: 'direct' },
+                            type: { type: 'string', enum: ['domain_suffix', 'domain_keyword', 'domain', 'geosite', 'geoip', 'ip_cidr'] },
+                            value: { type: 'string' },
+                            comment: { type: 'string' },
+                            enabled: { type: 'boolean', default: true },
+                        },
+                    },
+                },
+                match: {
+                    type: 'object',
+                    description: 'Matcher for action=remove_rule',
+                    properties: {
+                        action: { type: 'string', enum: ['direct', 'block'] },
+                        type: { type: 'string', enum: ['domain_suffix', 'domain_keyword', 'domain', 'geosite', 'geoip', 'ip_cidr'] },
+                        value: { type: 'string' },
+                    },
+                },
+                dns: {
+                    type: 'object',
+                    description: 'Split DNS values for action=set_dns',
+                    properties: {
+                        domestic: { type: 'string', description: 'Domestic/direct DNS, e.g. 77.88.8.8' },
+                        remote: { type: 'string', description: 'Remote/proxied DNS, e.g. tls://1.1.1.1' },
+                    },
+                },
+                merge: {
+                    type: 'boolean',
+                    default: true,
+                    description: 'For apply_preset: merge with current rules instead of replacing them',
+                },
+            },
+            required: ['action'],
+        },
+    },
+
     get_topology: {
         description: 'Get the full network topology: all active nodes and cascade links between them.',
         requiredScope: 'nodes:read',
@@ -371,6 +455,12 @@ async function callTool(name, args, apiKey, emit) {
 
         case 'system_action':
             return await systemTools.systemAction(args, emit);
+
+        case 'query_settings':
+            return await settingsTools.querySettings(args);
+
+        case 'manage_routing':
+            return await settingsTools.manageRouting(args, emit);
 
         case 'get_topology':
             return await cascadeTools.getTopology();

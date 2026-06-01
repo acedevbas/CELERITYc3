@@ -272,6 +272,78 @@ curl -X POST https://your-panel.com/api/mcp \
 
 ---
 
+### 🔧 query_settings — Чтение настроек панели
+
+> Требуется scope: `stats:read`
+
+Возвращает безопасные разделы настроек без секретов.
+
+**Разделы:** `routing` | `loadBalancing` | `subscription` | `all`
+
+<details>
+<summary>📖 Пример: прочитать routing-настройки</summary>
+
+```json
+{
+  "name": "query_settings",
+  "arguments": {
+    "section": "routing"
+  }
+}
+```
+
+</details>
+
+---
+
+### 🧭 manage_routing — Правила маршрутизации подписок
+
+> Требуется scope: `sync:write`
+
+Управляет split-routing правилами, которые попадают в генерируемые подписки. Можно пустить российские сайты/IP напрямую, заблокировать рекламу или изменить split DNS. При изменении routing кэш подписок сбрасывается сразу.
+
+**Доступные действия:** `enable` | `disable` | `apply_preset` | `add_rule` | `remove_rule` | `replace_rules` | `set_dns`
+
+**Пресеты:** `bypass-ru` | `bypass-lan` | `block-ads`
+
+<details>
+<summary>📖 Пример: включить обход российских сайтов</summary>
+
+```json
+{
+  "name": "manage_routing",
+  "arguments": {
+    "action": "apply_preset",
+    "preset": "bypass-ru",
+    "merge": true
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>📖 Пример: добавить direct-правило для домена</summary>
+
+```json
+{
+  "name": "manage_routing",
+  "arguments": {
+    "action": "add_rule",
+    "rule": {
+      "action": "direct",
+      "type": "domain",
+      "value": "example.ru",
+      "comment": "Открывать напрямую"
+    }
+  }
+}
+```
+
+</details>
+
+---
+
 ### 🗺 get_topology — Топология сети
 
 > Требуется scope: `nodes:read`

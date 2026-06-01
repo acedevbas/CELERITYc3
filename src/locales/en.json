@@ -1350,6 +1350,8 @@
     "toolExecuteSsh": "Execute SSH command on a node",
     "toolSshSession": "Interactive SSH session",
     "toolSystemAction": "System operations (sync, cache, backup)",
+    "toolQuerySettings": "Read safe panel settings",
+    "toolManageRouting": "Manage subscription routing rules",
     "toolGetTopology": "Network topology",
     "toolHealthCheck": "Panel health check",
     "scopeRequired": "Requires scope: mcp:enabled",

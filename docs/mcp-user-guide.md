@@ -272,6 +272,78 @@ Executes a shell command on the server and returns the output.
 
 ---
 
+### 🔧 query_settings — Read Panel Settings
+
+> `stats:read` scope required
+
+Reads safe settings sections without returning secrets.
+
+**Sections:** `routing` | `loadBalancing` | `subscription` | `all`
+
+<details>
+<summary>📖 Example: Read routing settings</summary>
+
+```json
+{
+  "name": "query_settings",
+  "arguments": {
+    "section": "routing"
+  }
+}
+```
+
+</details>
+
+---
+
+### 🧭 manage_routing — Subscription Routing Rules
+
+> `sync:write` scope required
+
+Manages split routing rules used in generated subscriptions. This can send Russian sites/IPs directly, block ads, or change split DNS. Updating routing invalidates subscription cache immediately.
+
+**Available Actions:** `enable` | `disable` | `apply_preset` | `add_rule` | `remove_rule` | `replace_rules` | `set_dns`
+
+**Presets:** `bypass-ru` | `bypass-lan` | `block-ads`
+
+<details>
+<summary>📖 Example: Enable Russian-site bypass</summary>
+
+```json
+{
+  "name": "manage_routing",
+  "arguments": {
+    "action": "apply_preset",
+    "preset": "bypass-ru",
+    "merge": true
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>📖 Example: Add one direct domain rule</summary>
+
+```json
+{
+  "name": "manage_routing",
+  "arguments": {
+    "action": "add_rule",
+    "rule": {
+      "action": "direct",
+      "type": "domain",
+      "value": "example.ru",
+      "comment": "Open directly"
+    }
+  }
+}
+```
+
+</details>
+
+---
+
 ### 🗺 get_topology — Network Topology
 
 > `nodes:read` scope required

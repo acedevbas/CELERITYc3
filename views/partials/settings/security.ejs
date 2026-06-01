@@ -371,7 +371,7 @@
                 <summary style="padding:0.7rem 1rem; cursor:pointer; font-size:13px; font-weight:600; list-style:none; display:flex; align-items:center; gap:0.5rem;">
                     <i class="ti ti-tools"></i>
                     <%= t('mcp.availableTools') || 'Available Tools' %>
-                    <span style="background:var(--bg-tertiary,#111); border:1px solid var(--border); border-radius:20px; padding:1px 8px; font-size:11px; margin-left:0.25rem;">10 tools</span>
+                    <span style="background:var(--bg-tertiary,#111); border:1px solid var(--border); border-radius:20px; padding:1px 8px; font-size:11px; margin-left:0.25rem;">12 tools</span>
                     <span style="background:var(--bg-tertiary,#111); border:1px solid var(--border); border-radius:20px; padding:1px 8px; font-size:11px; color:var(--primary,#6366f1);">6 prompts</span>
                 </summary>
                 <div style="padding:0.75rem 1rem; border-top:1px solid var(--border);">
@@ -386,6 +386,8 @@
                             ['execute_ssh', t('mcp.toolExecuteSsh') || 'Execute SSH command'],
                             ['ssh_session', t('mcp.toolSshSession') || 'Interactive SSH session'],
                             ['system_action', t('mcp.toolSystemAction') || 'System operations'],
+                            ['query_settings', t('mcp.toolQuerySettings') || 'Read safe panel settings'],
+                            ['manage_routing', t('mcp.toolManageRouting') || 'Manage subscription routing rules'],
                             ['get_topology', t('mcp.toolGetTopology') || 'Network topology'],
                             ['health_check', t('mcp.toolHealthCheck') || 'Panel health check'],
                         ]; %>
