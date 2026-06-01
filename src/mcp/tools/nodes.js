@@ -24,8 +24,10 @@ function getSyncService() {
 // Active SSH sessions managed by ssh_session tool (sessionId -> {conn, buffer})
 const sshSessions = new Map();
 
-// Fields excluded from all node queries returned to MCP clients
-const NODE_SAFE_SELECT = '-ssh.password -ssh.privateKey -xray.realityPrivateKey -statsSecret';
+// Fields excluded from all node queries returned to MCP clients. Keep the
+// explicit sanitizer below as a second guard for nested arrays and populated
+// documents where select() exclusions can be easy to miss.
+const NODE_SAFE_SELECT = '-ssh.password -ssh.privateKey -xray.realityPrivateKey -xray.agentToken -xray.extraInbounds.realityPrivateKey -statsSecret';
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
@@ -204,6 +206,32 @@ function buildSshConfig(node) {
     return cfg;
 }
 
+function sanitizeNodeForMcp(node) {
+    const raw = typeof node?.toObject === 'function' ? node.toObject() : { ...node };
+
+    if (raw.ssh) {
+        delete raw.ssh.password;
+        delete raw.ssh.privateKey;
+    }
+
+    delete raw.statsSecret;
+
+    if (raw.xray) {
+        delete raw.xray.realityPrivateKey;
+        delete raw.xray.agentToken;
+
+        if (Array.isArray(raw.xray.extraInbounds)) {
+            raw.xray.extraInbounds = raw.xray.extraInbounds.map(inbound => {
+                const safeInbound = { ...inbound };
+                delete safeInbound.realityPrivateKey;
+                return safeInbound;
+            });
+        }
+    }
+
+    return raw;
+}
+
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 async function queryNodes(args) {
@@ -213,7 +241,7 @@ async function queryNodes(args) {
         const node = await HyNode.findById(parsed.id).select(NODE_SAFE_SELECT).populate('groups', 'name color');
         if (!node) return { error: `Node '${parsed.id}' not found`, code: 404 };
 
-        const result = { ...node.toObject() };
+        const result = sanitizeNodeForMcp(node);
 
         if (parsed.includeUsers) {
             result.users = await HyUser.find({ nodes: node._id, enabled: true })
@@ -244,7 +272,7 @@ async function queryNodes(args) {
     if (parsed.filter?.status) filter.status = parsed.filter.status;
 
     const nodes = await HyNode.find(filter).select(NODE_SAFE_SELECT).populate('groups', 'name color').sort({ name: 1 });
-    return { nodes };
+    return { nodes: nodes.map(sanitizeNodeForMcp) };
 }
 
 async function manageNode(args, emit) {

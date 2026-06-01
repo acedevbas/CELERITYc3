@@ -352,11 +352,17 @@ function generateURI(user, node, config) {
  * / sing-box outbound / v2ray vnext.
  *
  * @param {Object} node - Node document with xray sub-object
+ * @param {Object} [options]
+ * @param {string[]} [options.transports] - Limit published inbounds by transport
  * @returns {Array<Object>} Inbound descriptors with `{port, nameSuffix, ...inboundFields}`
  */
-function getXrayPublishedInbounds(node) {
+function getXrayPublishedInbounds(node, options = {}) {
     if (node.type !== 'xray') return [];
     const xray = node.xray || {};
+    const allowedTransports = Array.isArray(options.transports) && options.transports.length > 0
+        ? new Set(options.transports.map(t => String(t).toLowerCase()))
+        : null;
+    const isAllowed = inbound => !allowedTransports || allowedTransports.has(String(inbound.transport || 'tcp').toLowerCase());
     const main = {
         port: node.port || 443,
         nameSuffix: '',
@@ -405,9 +411,10 @@ function getXrayPublishedInbounds(node) {
             xhttpPath: i.xhttpPath,
             xhttpHost: i.xhttpHost,
             xhttpMode: i.xhttpMode,
-        }));
+        }))
+        .filter(isAllowed);
 
-    return [main, ...extras];
+    return [main, ...extras].filter(isAllowed);
 }
 
 /**
@@ -526,10 +533,10 @@ function generateVlessURIForInbound(user, node, inbound) {
  * Generate VLESS URIs for every published inbound of an Xray node (main + extras).
  * Returns an array of strings (skip null results when uuid is missing).
  */
-function generateVlessURIs(user, node) {
+function generateVlessURIs(user, node, options = {}) {
     const uuid = user.xrayUuid;
     if (!uuid) return [];
-    return getXrayPublishedInbounds(node)
+    return getXrayPublishedInbounds(node, options)
         .map(inbound => generateVlessURIForInbound(user, node, inbound))
         .filter(Boolean);
 }
@@ -912,8 +919,15 @@ function buildClashDns(rules, dns) {
 
 // ==================== FORMAT GENERATORS ====================
 
-function generateURIList(user, nodes) {
+function generateURIList(user, nodes, options = {}) {
     const uris = [];
+    // Plain URI lists are the broadest compatibility target (Shadowrocket QR,
+    // copy/paste subscriptions, older clients). Keep experimental transports
+    // such as XHTTP out of this format; structured configs publish them where
+    // capabilities can be represented safely.
+    const xrayUriOptions = options.includeAdvancedXray
+        ? {}
+        : { transports: ['tcp', 'ws', 'grpc'] };
     const orderedNodes = [...nodes].sort((a, b) => {
         if (a.type === b.type) return 0;
         if (a.type === 'xray') return -1;
@@ -928,7 +942,7 @@ function generateURIList(user, nodes) {
             return;
         }
         if (node.type === 'xray') {
-            generateVlessURIs(user, node).forEach(uri => uris.push(uri));
+            generateVlessURIs(user, node, xrayUriOptions).forEach(uri => uris.push(uri));
         } else {
             getNodeConfigs(node).forEach(cfg => {
                 uris.push(generateURI(user, node, cfg));
