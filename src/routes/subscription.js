@@ -914,7 +914,14 @@ function buildClashDns(rules, dns) {
 
 function generateURIList(user, nodes) {
     const uris = [];
-    nodes.forEach(node => {
+    const orderedNodes = [...nodes].sort((a, b) => {
+        if (a.type === b.type) return 0;
+        if (a.type === 'xray') return -1;
+        if (b.type === 'xray') return 1;
+        return 0;
+    });
+
+    orderedNodes.forEach(node => {
         if (node.type === 'virtual') {
             // URI list cannot represent a balancer; clients that hit this format
             // will see only real nodes and fall back to manual selection.
