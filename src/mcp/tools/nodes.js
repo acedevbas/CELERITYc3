@@ -220,8 +220,10 @@ async function queryNodes(args) {
             const config = require('../../../config');
             const baseUrl = process.env.BASE_URL || `http://localhost:${config.PORT}`;
             if (node.type === 'xray') {
-                const users = await HyUser.find({ nodes: node._id, enabled: true });
-                result.config = configGenerator.generateXrayConfig(node, users);
+                const fullNode = await HyNode.findById(parsed.id).populate('groups', 'name color');
+                const syncService = getSyncService();
+                const users = await syncService._getUsersForNode(fullNode);
+                result.config = configGenerator.generateXrayConfig(fullNode, users);
             } else {
                 result.config = configGenerator.generateNodeConfig(node, `${baseUrl}/api/auth`);
             }

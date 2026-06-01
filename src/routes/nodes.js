@@ -528,7 +528,8 @@ router.get('/:id/config', requireScope('nodes:read'), async (req, res) => {
         const authUrl = `${baseUrl}/api/auth`;
         
         if (node.type === 'xray') {
-            const users = await HyUser.find({ nodes: node._id, enabled: true });
+            const syncService = require('../services/syncService');
+            const users = await syncService._getUsersForNode(node);
             const configContent = configGenerator.generateXrayConfig(node, users);
             return res.type('application/json').send(configContent);
         }
