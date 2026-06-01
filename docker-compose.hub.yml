@@ -68,18 +68,22 @@ services:
       caddy: x.twoheartsonecloud.ru
       caddy.reverse_proxy: "{{upstreams 3000}}"
       com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.scope: "celerity"
 
   # Auto-update only containers explicitly marked with the watchtower label.
   watchtower:
     image: containrrr/watchtower:latest
     container_name: hysteria-watchtower
     restart: always
+    labels:
+      com.centurylinklabs.watchtower.scope: "celerity"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Uncomment this if the GHCR package stays private and the host is logged in:
       # - /root/.docker/config.json:/config.json:ro
     environment:
       WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_SCOPE: "celerity"
       WATCHTOWER_CLEANUP: "true"
       WATCHTOWER_POLL_INTERVAL: 300
       WATCHTOWER_INCLUDE_RESTARTING: "true"
