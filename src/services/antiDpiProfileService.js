@@ -4,12 +4,10 @@ const HyNode = require('../models/hyNodeModel');
 
 const ANTI_DPI_TAG_PREFIX = 'anti-dpi-xhttp';
 
-const REALITY_TARGETS = [
-    { host: 'www.microsoft.com', port: 443, fingerprint: 'chrome' },
-    { host: 'www.apple.com', port: 443, fingerprint: 'chrome' },
-    { host: 'www.amazon.com', port: 443, fingerprint: 'chrome' },
-    { host: 'www.cloudflare.com', port: 443, fingerprint: 'chrome' },
-];
+const SERVER_REALITY_TARGETS_BY_IP = {
+    '77.105.140.33': 'nl2.twoheartsonecloud.ru',
+    '79.137.204.106': 'ae2.twoheartsonecloud.ru',
+};
 
 const XHTTP_PORTS = [9443, 2053, 2083, 2087, 2096, 24443, 34443, 44443, 54443];
 
@@ -20,11 +18,12 @@ function toPlain(value) {
         : { ...value };
 }
 
-function pickTarget(node, offset = 0) {
-    const seed = String(node?._id || node?.ip || node?.name || '');
-    let sum = 0;
-    for (const ch of seed) sum += ch.charCodeAt(0);
-    return REALITY_TARGETS[(sum + offset) % REALITY_TARGETS.length];
+function pickTarget(node) {
+    const host = SERVER_REALITY_TARGETS_BY_IP[node?.ip] || node?.domain || node?.sni;
+    if (!host) {
+        throw new Error(`Node ${node?.name || node?._id || ''} has no server domain for REALITY target`);
+    }
+    return { host, port: 443, fingerprint: 'chrome' };
 }
 
 function targetToDest(target) {
@@ -137,8 +136,8 @@ async function buildAntiDpiUpdates(node, options = {}) {
         throw new Error(`Node ${node.name} has no REALITY key pair`);
     }
 
-    const mainTarget = pickTarget(node, 0);
-    const backupTarget = pickTarget(node, 1);
+    const mainTarget = pickTarget(node);
+    const backupTarget = mainTarget;
     const updatedXray = {
         ...xray,
         fingerprint: 'chrome',
@@ -229,7 +228,7 @@ async function applyAntiDpiProfile(nodeId, options = {}) {
 
 module.exports = {
     ANTI_DPI_TAG_PREFIX,
-    REALITY_TARGETS,
+    SERVER_REALITY_TARGETS_BY_IP,
     XHTTP_PORTS,
     applyAntiDpiProfile,
     buildAntiDpiUpdates,
