@@ -73,6 +73,50 @@ function normalizeExtraInbound(extra) {
         : { ...(extra || {}) };
 }
 
+function summarizeNode(node) {
+    const raw = toPlain(node);
+    const xray = raw.xray || {};
+    return {
+        _id: raw._id,
+        type: raw.type,
+        name: raw.name,
+        ip: raw.ip,
+        domain: raw.domain,
+        port: raw.port,
+        groups: raw.groups,
+        active: raw.active,
+        status: raw.status,
+        lastSync: raw.lastSync,
+        lastError: raw.lastError,
+        xray: {
+            transport: xray.transport,
+            security: xray.security,
+            flow: xray.flow,
+            fingerprint: xray.fingerprint,
+            realityDest: xray.realityDest,
+            realitySni: xray.realitySni,
+            realityPublicKey: xray.realityPublicKey,
+            realityShortIds: xray.realityShortIds,
+            realitySpiderX: xray.realitySpiderX,
+            extraInbounds: (xray.extraInbounds || []).map(extra => ({
+                id: extra.id,
+                label: extra.label,
+                port: extra.port,
+                inboundTag: extra.inboundTag,
+                transport: extra.transport,
+                security: extra.security,
+                fingerprint: extra.fingerprint,
+                realityDest: extra.realityDest,
+                realitySni: extra.realitySni,
+                realityPublicKey: extra.realityPublicKey,
+                realityShortIds: extra.realityShortIds,
+                xhttpPath: extra.xhttpPath,
+                xhttpMode: extra.xhttpMode,
+            })),
+        },
+    };
+}
+
 async function buildAntiDpiUpdates(node, options = {}) {
     if (!node || node.type !== 'xray') {
         throw new Error('Anti-DPI profile can be applied only to Xray nodes');
@@ -180,7 +224,7 @@ async function applyAntiDpiProfile(nodeId, options = {}) {
         { $set: { xray: updates.xray } },
         { new: true }
     ).populate('groups', 'name color');
-    return { success: true, node: updatedNode, profile: updates.profile };
+    return { success: true, node: summarizeNode(updatedNode), profile: updates.profile };
 }
 
 module.exports = {
