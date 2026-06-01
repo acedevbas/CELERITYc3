@@ -1,5 +1,5 @@
-# C³ CELERITY - Quick Start (Docker Hub)
-# Use this file for quick deployment without building from source
+# C3 CELERITY - GHCR + Watchtower deployment
+# Build source: .github/workflows/docker.yml
 # Run: docker compose -f docker-compose.hub.yml up -d
 
 services:
@@ -38,9 +38,9 @@ services:
     networks:
       - hysteria-net
 
-  # Hysteria Backend (pre-built image from Docker Hub)
+  # Hysteria Backend (custom image built by GitHub Actions)
   backend:
-    image: clickdevtech/hysteria-panel:latest
+    image: ${CELERITY_IMAGE:-ghcr.io/acedevbas/celerityc3:latest}
     container_name: hysteria-backend
     restart: always
     depends_on:
@@ -48,9 +48,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      - "80:80/tcp"
-      - "443:443/tcp"
+    expose:
+      - "3000"
     volumes:
       - ./logs:/app/logs
       - ./greenlock.d:/app/greenlock.d
@@ -60,12 +59,40 @@ services:
     environment:
       MONGO_URI: mongodb://${MONGO_USER:-hysteria}:${MONGO_PASSWORD}@mongo:27017/hysteria?authSource=admin
       REDIS_URL: redis://redis:6379
+      PORT: 3000
+      USE_CADDY: "true"
+    networks:
+      - hysteria-net
+      - web
+    labels:
+      caddy: x.twoheartsonecloud.ru
+      caddy.reverse_proxy: "{{upstreams 3000}}"
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # Auto-update only containers explicitly marked with the watchtower label.
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: hysteria-watchtower
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Uncomment this if the GHCR package stays private and the host is logged in:
+      # - /root/.docker/config.json:/config.json:ro
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_POLL_INTERVAL: 300
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+      # Uncomment this if the GHCR package stays private:
+      # WATCHTOWER_REGISTRY_AUTH: "true"
     networks:
       - hysteria-net
 
 networks:
   hysteria-net:
     driver: bridge
+  web:
+    external: true
 
 volumes:
   mongo_data:
