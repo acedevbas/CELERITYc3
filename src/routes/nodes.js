@@ -527,8 +527,14 @@ router.get('/:id/config', requireScope('nodes:read'), async (req, res) => {
         const baseUrl = process.env.BASE_URL || `http://localhost:${config.PORT}`;
         const authUrl = `${baseUrl}/api/auth`;
         
+        if (node.type === 'xray') {
+            const users = await HyUser.find({ nodes: node._id, enabled: true });
+            const configContent = configGenerator.generateXrayConfig(node, users);
+            return res.type('application/json').send(configContent);
+        }
+
         const configContent = configGenerator.generateNodeConfig(node, authUrl);
-        
+
         res.type('text/yaml').send(configContent);
     } catch (error) {
         logger.error(`[Nodes API] Config generation error: ${error.message}`);

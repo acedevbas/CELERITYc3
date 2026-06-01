@@ -158,6 +158,7 @@ const manageNodeSchema = z.object({
         aclRules: z.array(z.string()).optional().describe('Inline ACL rules (stored on node root, not inside acl)'),
         useTlsFiles: z.boolean().optional().describe('Whether to use TLS cert/key files instead of ACME'),
         initScript: z.string().optional().describe('Bash script executed before auto-setup via SSH'),
+        xray: z.record(z.unknown()).optional().describe('Xray VLESS settings; merged by the panel as a whole xray object'),
     }).optional(),
     setupOptions: z.object({
         installHysteria: z.boolean().default(true),
@@ -218,7 +219,12 @@ async function queryNodes(args) {
             const configGenerator = require('../../services/configGenerator');
             const config = require('../../../config');
             const baseUrl = process.env.BASE_URL || `http://localhost:${config.PORT}`;
-            result.config = configGenerator.generateNodeConfig(node, `${baseUrl}/api/auth`);
+            if (node.type === 'xray') {
+                const users = await HyUser.find({ nodes: node._id, enabled: true });
+                result.config = configGenerator.generateXrayConfig(node, users);
+            } else {
+                result.config = configGenerator.generateNodeConfig(node, `${baseUrl}/api/auth`);
+            }
         }
 
         result.userCount = await HyUser.countDocuments({ nodes: node._id, enabled: true });
@@ -334,7 +340,7 @@ async function manageNode(args, emit) {
             if (!id) throw new Error('id is required for update');
             const allowed = [
                 'name', 'domain', 'sni', 'port', 'portRange', 'groups', 'active', 'country', 'cascadeRole', 'type',
-                'virtual',
+                'virtual', 'xray',
                 'hopInterval', 'acme', 'masquerade', 'bandwidth',
                 'ignoreClientBandwidth', 'speedTest', 'disableUDP',
                 'udpIdleTimeout', 'sniff', 'quic', 'resolver', 'acl', 'aclRules', 'useTlsFiles',
