@@ -107,7 +107,7 @@ const TOOLS = {
             properties: {
                 action: {
                     type: 'string',
-                    enum: ['create', 'update', 'delete', 'sync', 'setup', 'reset_status', 'update_config'],
+                    enum: ['create', 'update', 'delete', 'sync', 'setup', 'reset_status', 'update_config', 'apply_anti_dpi'],
                     description: 'Action to perform',
                 },
                 id: { type: 'string', description: 'Node MongoDB _id (required for all except create)' },
@@ -124,6 +124,15 @@ const TOOLS = {
                         active: { type: 'boolean' },
                         country: { type: 'string', description: 'Country code, e.g. US, DE, NL' },
                         cascadeRole: { type: 'string', enum: ['standalone', 'portal', 'bridge', 'relay'] },
+                        antiDpi: {
+                            type: 'object',
+                            description: 'Options for action=apply_anti_dpi',
+                            properties: {
+                                rotateRealityTarget: { type: 'boolean' },
+                                includeXhttp: { type: 'boolean' },
+                                preferredPorts: { type: 'array', items: { type: 'number' } },
+                            },
+                        },
                     },
                 },
                 setupOptions: {

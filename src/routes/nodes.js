@@ -303,6 +303,28 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
 });
 
 /**
+ * POST /nodes/:id/apply-anti-dpi - Apply the Russia strict anti-DPI profile.
+ */
+router.post('/:id/apply-anti-dpi', requireScope('nodes:write'), async (req, res) => {
+    try {
+        const antiDpiProfile = require('../services/antiDpiProfileService');
+        const result = await antiDpiProfile.applyAntiDpiProfile(req.params.id, req.body || {});
+        if (result.error) {
+            return res.status(result.code || 400).json({ error: result.error });
+        }
+
+        await invalidateNodesCache();
+        require('../services/syncService').schedulePush(result.node._id, { xray: result.node.xray });
+
+        logger.info(`[Nodes API] Applied anti-DPI profile to ${result.node.name}`);
+        res.json(result);
+    } catch (error) {
+        logger.error(`[Nodes API] Anti-DPI profile error: ${error.message}`);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * DELETE /nodes/:id - Удалить ноду
  */
 router.delete('/:id', requireScope('nodes:write'), async (req, res) => {

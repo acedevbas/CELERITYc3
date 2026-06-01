@@ -41,7 +41,7 @@ const queryNodesSchema = z.object({
 });
 
 const manageNodeSchema = z.object({
-    action: z.enum(['create', 'update', 'delete', 'sync', 'setup', 'reset_status', 'update_config']),
+    action: z.enum(['create', 'update', 'delete', 'sync', 'setup', 'reset_status', 'update_config', 'apply_anti_dpi']),
     id: z.string().optional().describe('Node MongoDB _id (required for all except create)'),
     data: z.object({
         name: z.string().optional(),
@@ -159,6 +159,11 @@ const manageNodeSchema = z.object({
         useTlsFiles: z.boolean().optional().describe('Whether to use TLS cert/key files instead of ACME'),
         initScript: z.string().optional().describe('Bash script executed before auto-setup via SSH'),
         xray: z.record(z.unknown()).optional().describe('Xray VLESS settings; merged by the panel as a whole xray object'),
+        antiDpi: z.object({
+            rotateRealityTarget: z.boolean().optional().describe('Rotate the main REALITY target to a known TLS 1.3/H2 website'),
+            includeXhttp: z.boolean().optional().describe('Add/update an XHTTP+REALITY backup inbound'),
+            preferredPorts: z.array(z.number().int().min(1).max(65535)).optional().describe('Preferred ports for the XHTTP backup inbound'),
+        }).optional(),
     }).optional(),
     setupOptions: z.object({
         installHysteria: z.boolean().default(true),
@@ -477,6 +482,21 @@ async function manageNode(args, emit) {
             const success = await getSyncService().updateNodeConfig(node);
             if (success) return { success: true, message: 'Config updated' };
             return { success: false, error: 'Failed to update config' };
+        }
+
+        case 'apply_anti_dpi': {
+            if (!id) throw new Error('id is required for apply_anti_dpi');
+            const antiDpiProfile = require('../../services/antiDpiProfileService');
+            const result = await antiDpiProfile.applyAntiDpiProfile(id, data?.antiDpi || {});
+            if (result.error) return result;
+            await invalidateNodesCache();
+            getSyncService().schedulePush(result.node._id, { xray: result.node.xray });
+            emit('progress', {
+                message: `Applied anti-DPI profile to '${result.node.name}', sync scheduled`,
+                profile: result.profile,
+            });
+            logger.info(`[MCP] Applied anti-DPI profile to ${result.node.name}`);
+            return result;
         }
 
         default:
