@@ -56,8 +56,9 @@ Plain URI subscriptions emit AmneziaWG nodes as URI lines:
   `h1`-`h4`, `i1`-`i5`) for clients that support AmneziaWG URIs.
 - `wireguard://...` as a compatibility fallback for clients that can import
   WireGuard-style subscription lines. This fallback exposes the same keys and
-  endpoint, but clients that do not understand AWG obfuscation may not be able
-  to connect to an AWG2 server.
+  endpoint, plus `obfs=amneziawg` and `obfsParam` JSON with the AWG2
+  obfuscation fields. Clients that ignore these fields may not be able to
+  connect to an AWG2 server.
 
 Mihomo/Clash subscriptions do include AmneziaWG nodes as `type: wireguard`
 proxies with `amnezia-wg-option` (`jc`, `jmin`, `jmax`, `s1`-`s4`,

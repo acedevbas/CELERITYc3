@@ -25,7 +25,7 @@ const hwidDeviceService = require('../services/hwidDeviceService');
 const webhookService = require('../services/webhookService');
 const amneziawgService = require('../services/amneziawgService');
 
-const SUBSCRIPTION_CACHE_VERSION = 'awg-sub-v4';
+const SUBSCRIPTION_CACHE_VERSION = 'awg-sub-v5';
 
 const CUSTOM_GEOSITE_RULESETS = {
     // ITDog keeps this list updated for Russian resources available only
@@ -394,6 +394,21 @@ function _appendUriParam(params, key, value) {
     }
 }
 
+function _amneziawgObfsParam(cfg) {
+    const data = {};
+    [
+        ['s3', cfg.s3], ['h1', cfg.h1], ['jmax', cfg.jmax], ['h2', cfg.h2],
+        ['s4', cfg.s4], ['jmin', cfg.jmin], ['h3', cfg.h3], ['s1', cfg.s1],
+        ['jc', cfg.jc], ['h4', cfg.h4], ['s2', cfg.s2],
+        ['i1', cfg.i1], ['i2', cfg.i2], ['i3', cfg.i3], ['i4', cfg.i4], ['i5', cfg.i5],
+    ].forEach(([key, value]) => {
+        if (value !== undefined && value !== null && String(value) !== '') {
+            data[key] = String(value);
+        }
+    });
+    return JSON.stringify(data);
+}
+
 function generateWireGuardURI(user, node) {
     const ctx = _buildAmneziawgUriContext(user, node);
     if (!ctx) return '';
@@ -407,10 +422,12 @@ function generateWireGuardURI(user, node) {
     _appendUriParam(params, 'publicKey', cfg.publicKey);
     _appendUriParam(params, 'peerpublickey', cfg.publicKey);
     _appendUriParam(params, 'peerPublicKey', cfg.publicKey);
+    _appendUriParam(params, 'ip', _clientIpFromCidr(peer.address));
     _appendUriParam(params, 'address', peer.address);
     _appendUriParam(params, 'allowedips', cfg.allowedIPs.join(','));
     _appendUriParam(params, 'allowedIPs', cfg.allowedIPs.join(','));
     if (peer.presharedKey) {
+        _appendUriParam(params, 'password', peer.presharedKey);
         _appendUriParam(params, 'presharedkey', peer.presharedKey);
         _appendUriParam(params, 'presharedKey', peer.presharedKey);
         _appendUriParam(params, 'preSharedKey', peer.presharedKey);
@@ -419,6 +436,9 @@ function generateWireGuardURI(user, node) {
     if (cfg.mtu) _appendUriParam(params, 'mtu', cfg.mtu);
     if (cfg.persistentKeepalive > 0) _appendUriParam(params, 'persistentkeepalive', cfg.persistentKeepalive);
     if (cfg.persistentKeepalive > 0) _appendUriParam(params, 'persistentKeepalive', cfg.persistentKeepalive);
+    _appendUriParam(params, 'obfs', 'amneziawg');
+    _appendUriParam(params, 'obfsParam', _amneziawgObfsParam(cfg));
+    _appendUriParam(params, 'obfsparam', _amneziawgObfsParam(cfg));
     return `wireguard://${encodeURIComponent(peer.privateKey)}@${host}:${port}/?${params.join('&')}#${encodeURIComponent(name)}`;
 }
 
@@ -435,10 +455,12 @@ function generateAmneziawgURI(user, node) {
     _appendUriParam(params, 'peerPublicKey', cfg.publicKey);
     _appendUriParam(params, 'publickey', cfg.publicKey);
     _appendUriParam(params, 'publicKey', cfg.publicKey);
+    _appendUriParam(params, 'ip', _clientIpFromCidr(peer.address));
     _appendUriParam(params, 'address', peer.address);
     _appendUriParam(params, 'allowedips', cfg.allowedIPs.join(','));
     _appendUriParam(params, 'allowedIPs', cfg.allowedIPs.join(','));
     if (peer.presharedKey) {
+        _appendUriParam(params, 'password', peer.presharedKey);
         _appendUriParam(params, 'presharedkey', peer.presharedKey);
         _appendUriParam(params, 'presharedKey', peer.presharedKey);
         _appendUriParam(params, 'preSharedKey', peer.presharedKey);
@@ -447,6 +469,9 @@ function generateAmneziawgURI(user, node) {
     if (cfg.mtu) _appendUriParam(params, 'mtu', cfg.mtu);
     if (cfg.persistentKeepalive > 0) _appendUriParam(params, 'persistentkeepalive', cfg.persistentKeepalive);
     if (cfg.persistentKeepalive > 0) _appendUriParam(params, 'persistentKeepalive', cfg.persistentKeepalive);
+    _appendUriParam(params, 'obfs', 'amneziawg');
+    _appendUriParam(params, 'obfsParam', _amneziawgObfsParam(cfg));
+    _appendUriParam(params, 'obfsparam', _amneziawgObfsParam(cfg));
     [
         ['jc', cfg.jc], ['jmin', cfg.jmin], ['jmax', cfg.jmax],
         ['s1', cfg.s1], ['s2', cfg.s2], ['s3', cfg.s3], ['s4', cfg.s4],
