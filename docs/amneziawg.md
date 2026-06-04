@@ -91,9 +91,12 @@ This returns an Amnezia `vpn://` key for the same AWG2 config. The aliases
 auto-selected when the request user-agent contains `Amnezia`.
 
 The browser subscription page also renders per-node AmneziaWG cards. The QR
-payload is a single raw `.conf` file for AmneziaWG/WireGuard import. The card
-also exposes copy/download actions for the same `.conf` and a copy action for
-the Amnezia `vpn://` key.
+payload is a single SVG QR with a raw `.conf` file for AmneziaWG/WireGuard
+import, generated with low error correction and a 1-module border like the
+official Amnezia client flow. For mobile Amnezia imports the QR payload omits
+the problematic `<r N>` prefix before the `I1 = <b ...>` special junk packet;
+copy/download actions still expose the full stored `.conf`, and the card also
+has a copy action for the Amnezia `vpn://` key.
 
 The default client route is IPv4 full-tunnel (`0.0.0.0/0`). Add IPv6 routes only
 when the server interface and forwarding are explicitly configured for IPv6.

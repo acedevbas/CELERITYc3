@@ -2032,16 +2032,29 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         return Buffer.from(String(value || ''), 'utf8').toString('base64');
     }
 
+    function amneziaQrCompatConf(conf) {
+        return String(conf || '').replace(/^(I1\s*=\s*)<r\s+\d+>(?=<b\s+0x)/gmi, '$1');
+    }
+
     async function buildQrDataUrl(value, cacheKey, options = {}) {
         let qrDataUrl = await cache.getQR(cacheKey);
         if (qrDataUrl) return qrDataUrl;
         try {
-            qrDataUrl = await QRCode.toDataURL(value, {
+            const qrOptions = {
                 width: options.width || 240,
                 margin: options.margin ?? 1,
                 errorCorrectionLevel: options.errorCorrectionLevel || 'M',
                 color: options.color || { dark: '#000000', light: '#ffffff' },
-            });
+            };
+            if (options.format === 'svg') {
+                const svg = await QRCode.toString(value, {
+                    ...qrOptions,
+                    type: 'svg',
+                });
+                qrDataUrl = `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`;
+            } else {
+                qrDataUrl = await QRCode.toDataURL(value, qrOptions);
+            }
             await cache.setQR(cacheKey, qrDataUrl);
             return qrDataUrl;
         } catch (e) {
@@ -2080,16 +2093,18 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     const amneziaQrConfigs = allConfigs.filter(cfg => cfg.type === 'amneziawg');
     for (const cfg of amneziaQrConfigs) {
         const conf = cfg.conf || cfg.uri;
+        const qrConf = amneziaQrCompatConf(conf);
         cfg.confB64 = base64Utf8(conf);
         cfg.vpnKey = amneziaVpnKeyFromConfig(cfg.amneziaNativeConfig);
         cfg.vpnKeyB64 = base64Utf8(cfg.vpnKey);
         cfg.filename = `${String(cfg.location || 'amneziawg').replace(/[^A-Za-z0-9._-]+/g, '-') || 'amneziawg'}.conf`;
         const confHash = crypto
             .createHash('sha256')
-            .update(conf)
+            .update(qrConf)
             .digest('hex')
             .slice(0, 16);
-        cfg.qrDataUrl = await buildQrDataUrl(conf, `awg-conf-v4:${confHash}`, {
+        cfg.qrDataUrl = await buildQrDataUrl(qrConf, `awg-conf-v5:${confHash}`, {
+            format: 'svg',
             width: 520,
             margin: 1,
             errorCorrectionLevel: 'L',
@@ -2113,7 +2128,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                 </div>
                 `).join('')}
             </div>
-            <div class="qr-hint">QR содержит один .conf для AmneziaWG/WireGuard-импорта.</div>
+            <div class="qr-hint">QR содержит Amnezia-compatible .conf; кнопки копирования и скачивания отдают полный конфиг.</div>
            </div>`
         : '';
 
