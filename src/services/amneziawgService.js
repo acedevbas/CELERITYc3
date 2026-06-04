@@ -435,6 +435,24 @@ function generateAmneziaNativeConfig(user, node, options = {}) {
     const peer = user.amneziawg || {};
     const host = cfg.endpointHost || node.domain || node.ip;
     const config = generateClientConfig(user, node);
+    const awgProtocolConfig = {
+        last_config: '',
+        isThirdPartyConfig: true,
+        port: String(node.port || 51820),
+        transport_proto: 'udp',
+        protocol_version: '2',
+        Jc: String(cfg.jc),
+        Jmin: String(cfg.jmin),
+        Jmax: String(cfg.jmax),
+        S1: String(cfg.s1),
+        S2: String(cfg.s2),
+        S3: String(cfg.s3),
+        S4: String(cfg.s4),
+        H1: cfg.h1,
+        H2: cfg.h2,
+        H3: cfg.h3,
+        H4: cfg.h4,
+    };
     const lastConfig = {
         config,
         hostName: host,
@@ -459,21 +477,20 @@ function generateAmneziaNativeConfig(user, node, options = {}) {
     };
     if (isBase64Key(peer.presharedKey)) lastConfig.psk_key = peer.presharedKey;
     ['i1', 'i2', 'i3', 'i4', 'i5'].forEach(key => {
-        if (cfg[key]) lastConfig[key.toUpperCase()] = cfg[key];
+        if (cfg[key]) {
+            const configKey = key.toUpperCase();
+            awgProtocolConfig[configKey] = cfg[key];
+            lastConfig[configKey] = cfg[key];
+        }
     });
+    awgProtocolConfig.last_config = JSON.stringify(lastConfig);
 
     return {
         containers: [{
-            container: 'amnezia-awg2',
-            awg: {
-                last_config: JSON.stringify(lastConfig),
-                isThirdPartyConfig: true,
-                port: String(node.port || 51820),
-                transport_proto: 'udp',
-                protocol_version: '2',
-            },
+            container: 'amnezia-awg',
+            awg: awgProtocolConfig,
         }],
-        defaultContainer: 'amnezia-awg2',
+        defaultContainer: 'amnezia-awg',
         description: options.description || `${node.flag || ''} ${node.name || 'AmneziaWG'}`.trim() || 'AmneziaWG',
         hostName: host,
         dns1: cfg.dns[0] || '1.1.1.1',

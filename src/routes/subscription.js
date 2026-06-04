@@ -25,7 +25,7 @@ const hwidDeviceService = require('../services/hwidDeviceService');
 const webhookService = require('../services/webhookService');
 const amneziawgService = require('../services/amneziawgService');
 
-const SUBSCRIPTION_CACHE_VERSION = 'awg-sub-v6';
+const SUBSCRIPTION_CACHE_VERSION = 'awg-sub-v7';
 
 const CUSTOM_GEOSITE_RULESETS = {
     // ITDog keeps this list updated for Russian resources available only
@@ -2032,10 +2032,6 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         return Buffer.from(String(value || ''), 'utf8').toString('base64');
     }
 
-    function amneziaQrCompatConf(conf) {
-        return String(conf || '').replace(/^(I1\s*=\s*)<r\s+\d+>(?=<b\s+0x)/gmi, '$1');
-    }
-
     async function buildQrDataUrl(value, cacheKey, options = {}) {
         let qrDataUrl = await cache.getQR(cacheKey);
         if (qrDataUrl) return qrDataUrl;
@@ -2093,17 +2089,16 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     const amneziaQrConfigs = allConfigs.filter(cfg => cfg.type === 'amneziawg');
     for (const cfg of amneziaQrConfigs) {
         const conf = cfg.conf || cfg.uri;
-        const qrConf = amneziaQrCompatConf(conf);
         cfg.confB64 = base64Utf8(conf);
         cfg.vpnKey = amneziaVpnKeyFromConfig(cfg.amneziaNativeConfig);
         cfg.vpnKeyB64 = base64Utf8(cfg.vpnKey);
         cfg.filename = `${String(cfg.location || 'amneziawg').replace(/[^A-Za-z0-9._-]+/g, '-') || 'amneziawg'}.conf`;
         const confHash = crypto
             .createHash('sha256')
-            .update(qrConf)
+            .update(cfg.vpnKey)
             .digest('hex')
             .slice(0, 16);
-        cfg.qrDataUrl = await buildQrDataUrl(qrConf, `awg-conf-v5:${confHash}`, {
+        cfg.qrDataUrl = await buildQrDataUrl(cfg.vpnKey, `awg-vpn-v1:${confHash}`, {
             format: 'svg',
             width: 520,
             margin: 1,
@@ -2128,7 +2123,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                 </div>
                 `).join('')}
             </div>
-            <div class="qr-hint">QR содержит Amnezia-compatible .conf; кнопки копирования и скачивания отдают полный конфиг.</div>
+            <div class="qr-hint">QR содержит Amnezia vpn:// ключ; .conf доступен отдельно для ручного импорта.</div>
            </div>`
         : '';
 
