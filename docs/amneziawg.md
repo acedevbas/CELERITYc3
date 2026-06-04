@@ -63,11 +63,11 @@ If a user has one AmneziaWG node, the response is a plain `.conf` body. If a
 user has multiple AmneziaWG nodes, the response is a text bundle with one named
 config block per node.
 
-The browser subscription page also renders per-node AmneziaWG cards. The QR
-payload is the plain `.conf` text, matching the official Amnezia VPN AWG export
-path: the client recognizes `[Interface]`/`[Peer]` and converts it into its
-internal container config. The card also exposes copy/download actions for the
-same `.conf` file used by AmneziaWG-compatible clients.
+The browser subscription page also renders per-node AmneziaWG cards. The primary
+QR payload is an Amnezia-native AWG2 config compressed with Qt-compatible
+`qCompress` framing and split into QR chunks with Amnezia's `1984` magic marker
+when needed. The card also exposes a plain `.conf` QR fallback plus copy/download
+actions for the same `.conf` file used by AmneziaWG-compatible clients.
 
 The default client route is IPv4 full-tunnel (`0.0.0.0/0`). Add IPv6 routes only
 when the server interface and forwarding are explicitly configured for IPv6.
