@@ -1468,8 +1468,8 @@ These endpoints are not under \`/api\` and are not part of this specification:
                     {
                         name: 'format',
                         in: 'query',
-                        schema: { type: 'string', enum: ['clash', 'yaml', 'singbox', 'json', 'v2ray-json', 'shadowrocket', 'uri', 'raw'] },
-                        description: 'Force output format (overrides User-Agent detection)',
+                        schema: { type: 'string', enum: ['clash', 'yaml', 'singbox', 'json', 'v2ray-json', 'v2rayn', 'shadowrocket', 'amnezia', 'amneziawg', 'uri', 'raw'] },
+                        description: 'Optional diagnostic override. Normal clients should use the plain URL and rely on User-Agent auto-detection.',
                     },
                 ],
                 responses: {

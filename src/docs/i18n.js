@@ -364,7 +364,7 @@ JSON-эндпоинты возвращают ошибки в таком форм
             'Node ObjectId': 'ObjectId ноды',
             'Group ObjectId': 'ObjectId группы',
             'User subscription token': 'Токен подписки пользователя',
-            'Force output format (overrides User-Agent detection)': 'Принудительно выбрать формат (переопределяет определение по User-Agent)',
+            'Optional diagnostic override. Normal clients should use the plain URL and rely on User-Agent auto-detection.': 'Необязательное диагностическое переопределение. Обычные клиенты должны использовать простую ссылку и автоопределение по User-Agent.',
             'Client IP:port': 'IP:порт клиента',
             'userId (only when ok=true)': 'userId (только при ok=true)',
             'Auth result': 'Результат аутентификации',

@@ -25,7 +25,7 @@ const hwidDeviceService = require('../services/hwidDeviceService');
 const webhookService = require('../services/webhookService');
 const amneziawgService = require('../services/amneziawgService');
 
-const SUBSCRIPTION_CACHE_VERSION = 'awg-sub-v7';
+const SUBSCRIPTION_CACHE_VERSION = 'client-format-v8';
 
 const CUSTOM_GEOSITE_RULESETS = {
     // ITDog keeps this list updated for Russian resources available only
@@ -54,16 +54,35 @@ function detectFormat(userAgent) {
     const ua = (userAgent || '').toLowerCase();
     // Amnezia VPN imports its own vpn:// key format, not generic URI lists.
     if (/amnezia/.test(ua)) return 'amnezia';
-    // Shadowrocket expects base64-encoded URI list
+    // URI-subscription clients expect v2rayN-compatible links, commonly base64 encoded.
     if (/shadowrocket/.test(ua)) return 'shadowrocket';
+    if (/v2rayn|v2rayng|v2raytun|streisand|v2box|foxray|quantumult|potatso/.test(ua)) return 'v2rayn';
+    // NekoBox/NekoRay desktop and Android both accept common v2rayN subscriptions.
+    // Use this safer node-list format by default; sing-box JSON remains available via ?format=singbox.
+    if (/nekobox|nekoray|neko/.test(ua)) return 'v2rayn';
     // HAPP (Xray-core based) — plain URI list (individual servers in HAPP UI)
     // v2ray-json available via ?format=v2ray-json for users who want routing rules
     if (/happ/.test(ua)) return 'uri';
     // sing-box based clients — checked BEFORE clash because Hiddify UA contains "ClashMeta"
     // Example: "HiddifyNext/4.0.5 (android) like ClashMeta v2ray sing-box"
-    if (/hiddify|hiddifynext|sing-?box|nekobox|nekoray|neko|sfi|sfa|sfm|sft|karing/.test(ua)) return 'singbox';
-    if (/clash|stash|surge|loon/.test(ua)) return 'clash';
-    return 'uri';
+    if (/hiddify|hiddifynext|sing-?box|sfi|sfa|sfm|sft|karing/.test(ua)) return 'singbox';
+    if (/clash|clashmeta|mihomo|flclash|stash|surge|loon|meta ?cube|verge/.test(ua)) return 'clash';
+    // Unknown app clients get the most widely accepted node subscription shape.
+    // Browser requests are handled before this function and still receive HTML.
+    return 'v2rayn';
+}
+
+function normalizeFormat(format) {
+    const f = String(Array.isArray(format) ? format[0] : format || '').trim().toLowerCase();
+    if (!f) return '';
+    if (['base64', 'b64', 'uri-base64', 'uri_b64', 'v2ray', 'v2rayn', 'v2rayng', 'v2raytun', 'nekobox', 'nekoray', 'streisand', 'v2box'].includes(f)) {
+        return 'v2rayn';
+    }
+    if (f === 'happ') return 'uri';
+    if (['clash-meta', 'clashmeta', 'mihomo', 'meta', 'stash', 'surge', 'loon'].includes(f)) return 'clash';
+    if (['sing-box', 'sing_box', 'sfa', 'sfi', 'sfm', 'sft', 'hiddify', 'hiddifynext', 'karing'].includes(f)) return 'singbox';
+    if (['amnezia-vpn', 'vpn'].includes(f)) return 'amnezia';
+    return f;
 }
 
 function base64Url(buffer) {
@@ -2810,7 +2829,8 @@ function generateFakeSubscriptionContent(format, lines) {
     }));
 
     switch (format) {
-        case 'shadowrocket': {
+        case 'shadowrocket':
+        case 'v2rayn': {
             const uris = fakeServers.map(s =>
                 `ss://${HWID_FAKE_SS_USERINFO_B64}@${s.host}:1#${encodeURIComponent(s.name)}`
             );
@@ -3021,7 +3041,7 @@ async function serveSubscription(req, res, ctx) {
     const { user, cacheToken, baseUrl } = ctx;
     const userAgent = req.headers['user-agent'] || 'unknown';
 
-    let format = req.query.format;
+    let format = normalizeFormat(req.query.format);
     const browser = isBrowser(req);
 
     // Browser without ?format — render HTML and bypass cache (no shared state
@@ -3155,6 +3175,7 @@ function generateSubscriptionData(user, nodes, format, userAgent, happProviderId
 
     switch (format) {
         case 'shadowrocket':
+        case 'v2rayn':
             content = generateURIList(user, nodes);
             needsBase64 = true;
             break;
