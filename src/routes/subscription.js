@@ -11,7 +11,6 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
-const zlib = require('zlib');
 const QRCode = require('qrcode');
 const HyUser = require('../models/hyUserModel');
 const HyNode = require('../models/hyNodeModel');
@@ -1761,9 +1760,6 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                     name: 'AmneziaWG',
                     type: 'amneziawg',
                     uri: amneziawgService.generateClientConfig(user, node),
-                    amneziaNativeConfig: amneziawgService.generateAmneziaNativeConfig(user, node, {
-                        description: `${node.flag || ''} ${node.name || 'AmneziaWG'}`.trim(),
-                    }),
                 });
             } catch (err) {
                 logger.warn(`[Sub] AmneziaWG HTML config skipped for ${node.name}: ${err.message}`);
@@ -1810,20 +1806,6 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
 
     function base64Utf8(value) {
         return Buffer.from(String(value || ''), 'utf8').toString('base64');
-    }
-
-    function base64Url(buffer) {
-        return Buffer.from(buffer).toString('base64')
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/g, '');
-    }
-
-    function qtCompressJson(value) {
-        const raw = Buffer.from(JSON.stringify(value), 'utf8');
-        const prefix = Buffer.alloc(4);
-        prefix.writeUInt32BE(raw.length, 0);
-        return Buffer.concat([prefix, zlib.deflateSync(raw, { level: 8 })]);
     }
 
     async function buildQrDataUrl(value, cacheKey, options = {}) {
@@ -1873,19 +1855,17 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
 
     const amneziaQrConfigs = allConfigs.filter(cfg => cfg.type === 'amneziawg');
     for (const cfg of amneziaQrConfigs) {
-        const nativeQrPayload = base64Url(qtCompressJson(cfg.amneziaNativeConfig));
-        cfg.nativeQrPayload = nativeQrPayload;
         cfg.confB64 = base64Utf8(cfg.uri);
         cfg.filename = `${String(cfg.location || 'amneziawg').replace(/[^A-Za-z0-9._-]+/g, '-') || 'amneziawg'}.conf`;
         const hash = crypto
             .createHash('sha256')
-            .update(nativeQrPayload)
+            .update(cfg.uri)
             .digest('hex')
             .slice(0, 16);
-        cfg.qrDataUrl = await buildQrDataUrl(nativeQrPayload, `awg-native-v1:${hash}`, {
-            width: 360,
-            margin: 2,
-            errorCorrectionLevel: 'M',
+        cfg.qrDataUrl = await buildQrDataUrl(cfg.uri, `awg-conf-v1:${hash}`, {
+            width: 560,
+            margin: 4,
+            errorCorrectionLevel: 'L',
             color: { dark: '#000000', light: '#ffffff' },
         });
     }
@@ -1897,7 +1877,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                 ${amneziaQrConfigs.filter(cfg => cfg.qrDataUrl).map(cfg => `
                 <div class="awg-qr-card">
                     <div class="awg-qr-title">${escHtml(cfg.location)}</div>
-                    <img src="${cfg.qrDataUrl}" alt="AmneziaWG QR" class="qr-image qr-image-standard">
+                    <img src="${cfg.qrDataUrl}" alt="AmneziaWG QR" class="qr-image qr-image-standard qr-image-awg">
                     <div class="awg-qr-actions">
                         <button class="copy-btn" data-copy-b64="${escAttr(cfg.confB64)}" onclick="copyDataText(this)"><i class="ti ti-copy"></i> Копировать .conf</button>
                         <button class="copy-btn copy-btn-secondary" data-copy-b64="${escAttr(cfg.confB64)}" data-filename="${escAttr(cfg.filename)}" onclick="downloadConf(this)"><i class="ti ti-download"></i> Скачать .conf</button>
@@ -1905,7 +1885,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                 </div>
                 `).join('')}
             </div>
-            <div class="qr-hint">QR содержит native-конфигурацию для Amnezia VPN. Для AmneziaWG-совместимых клиентов используйте .conf.</div>
+            <div class="qr-hint">QR содержит .conf для AmneziaWG. Если камера не берет QR с экрана, используйте скачивание .conf.</div>
            </div>`
         : '';
 
@@ -2289,6 +2269,11 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             background: #fff;
             border-radius: var(--radius-sm);
             mix-blend-mode: normal;
+        }
+        .qr-image-awg {
+            width: min(520px, 100%);
+            padding: 14px;
+            image-rendering: pixelated;
         }
         .awg-qr-grid {
             display: grid;

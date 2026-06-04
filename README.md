@@ -351,8 +351,9 @@ long as each real protocol uses its own port. See [AmneziaWG support](docs/amnez
 
 Subscriptions for this protocol are served as `.conf` configs via
 `/api/files/<token>?format=amneziawg`. The browser subscription page also shows
-per-node AmneziaWG cards: QR codes use compressed Amnezia native third-party AWG
-AWG2 payloads for Amnezia VPN, while copy/download buttons expose the plain `.conf`.
+per-node AmneziaWG cards: QR codes contain the same plain `.conf` payload that
+Amnezia VPN imports from its scanner, and copy/download buttons expose that
+config directly.
 Auto setup enables IPv4 forwarding/NAT for the AmneziaWG client pool.
 
 ---
