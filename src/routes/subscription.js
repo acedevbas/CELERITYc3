@@ -82,6 +82,30 @@ function amneziaVpnKeyFromConfig(config) {
     return `vpn://${base64Url(qtCompressJson(config))}`;
 }
 
+function amneziaQrPayloadsFromVpnKey(vpnKey) {
+    const payload = String(vpnKey || '').replace(/^vpn:\/\//i, '');
+    const data = Buffer.from(payload, 'utf8');
+    const chunkSize = 850;
+    const chunkCount = Math.max(1, Math.ceil(data.length / chunkSize));
+    if (chunkCount > 255) {
+        throw new Error(`Amnezia VPN key is too large for QR series (${chunkCount} chunks)`);
+    }
+
+    const chunks = [];
+    for (let i = 0; i < chunkCount; i++) {
+        const part = data.subarray(i * chunkSize, Math.min((i + 1) * chunkSize, data.length));
+        const packet = Buffer.alloc(2 + 1 + 1 + 4 + part.length);
+        let offset = 0;
+        packet.writeInt16BE(1984, offset); offset += 2;
+        packet.writeUInt8(chunkCount, offset); offset += 1;
+        packet.writeUInt8(i, offset); offset += 1;
+        packet.writeUInt32BE(part.length, offset); offset += 4;
+        part.copy(packet, offset);
+        chunks.push(base64Url(packet));
+    }
+    return chunks;
+}
+
 function isBrowser(req) {
     const accept = req.headers.accept || '';
     const ua = (req.headers['user-agent'] || '').toLowerCase();
@@ -1781,6 +1805,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                     name: 'AmneziaWG',
                     type: 'amneziawg',
                     uri: amneziawgService.generateClientConfig(user, node),
+                    amneziaNativeConfig: amneziawgService.generateAmneziaNativeConfig(user, node),
                 });
             } catch (err) {
                 logger.warn(`[Sub] AmneziaWG HTML config skipped for ${node.name}: ${err.message}`);
@@ -1877,36 +1902,44 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     const amneziaQrConfigs = allConfigs.filter(cfg => cfg.type === 'amneziawg');
     for (const cfg of amneziaQrConfigs) {
         cfg.confB64 = base64Utf8(cfg.uri);
+        cfg.vpnKey = amneziaVpnKeyFromConfig(cfg.amneziaNativeConfig);
+        cfg.vpnKeyB64 = base64Utf8(cfg.vpnKey);
         cfg.filename = `${String(cfg.location || 'amneziawg').replace(/[^A-Za-z0-9._-]+/g, '-') || 'amneziawg'}.conf`;
-        const confHash = crypto
+        const keyHash = crypto
             .createHash('sha256')
-            .update(cfg.uri)
+            .update(cfg.vpnKey)
             .digest('hex')
             .slice(0, 16);
-        cfg.qrDataUrl = await buildQrDataUrl(cfg.uri, `awg-conf-v3:${confHash}`, {
-            width: 560,
-            margin: 1,
-            errorCorrectionLevel: 'L',
-            color: { dark: '#000000', light: '#ffffff' },
-        });
+        cfg.qrDataUrls = [];
+        for (const [index, payload] of amneziaQrPayloadsFromVpnKey(cfg.vpnKey).entries()) {
+            cfg.qrDataUrls.push(await buildQrDataUrl(payload, `awg-vpn-key-v1:${keyHash}:${index}`, {
+                width: 420,
+                margin: 1,
+                errorCorrectionLevel: 'L',
+                color: { dark: '#000000', light: '#ffffff' },
+            }));
+        }
+        cfg.qrDataUrls = cfg.qrDataUrls.filter(Boolean);
     }
 
-    const amneziaQrSectionHtml = amneziaQrConfigs.some(cfg => cfg.qrDataUrl)
+    const amneziaQrSectionHtml = amneziaQrConfigs.some(cfg => cfg.qrDataUrls?.length)
         ? `<div class="section section-center qr-section">
             <h2><i class="ti ti-shield-lock"></i> AMNEZIAWG QR</h2>
             <div class="awg-qr-grid">
-                ${amneziaQrConfigs.filter(cfg => cfg.qrDataUrl).map(cfg => `
+                ${amneziaQrConfigs.filter(cfg => cfg.qrDataUrls?.length).map(cfg => `
                 <div class="awg-qr-card">
                     <div class="awg-qr-title">${escHtml(cfg.location)}</div>
-                    <img src="${cfg.qrDataUrl}" alt="AmneziaWG QR" class="qr-image qr-image-standard qr-image-awg">
+                    <img src="${cfg.qrDataUrls[0]}" alt="AmneziaWG QR" class="qr-image qr-image-standard qr-image-awg" data-qr-series="${escAttr(JSON.stringify(cfg.qrDataUrls))}">
+                    <div class="awg-qr-progress"${cfg.qrDataUrls.length > 1 ? '' : ' hidden'}>QR 1/${cfg.qrDataUrls.length}</div>
                     <div class="awg-qr-actions">
-                        <button class="copy-btn" data-copy-b64="${escAttr(cfg.confB64)}" onclick="copyDataText(this)"><i class="ti ti-copy"></i> Копировать .conf</button>
+                        <button class="copy-btn" data-copy-b64="${escAttr(cfg.vpnKeyB64)}" onclick="copyDataText(this)"><i class="ti ti-copy"></i> Копировать ключ</button>
+                        <button class="copy-btn copy-btn-secondary" data-copy-b64="${escAttr(cfg.confB64)}" onclick="copyDataText(this)"><i class="ti ti-file-text"></i> Копировать .conf</button>
                         <button class="copy-btn copy-btn-secondary" data-copy-b64="${escAttr(cfg.confB64)}" data-filename="${escAttr(cfg.filename)}" onclick="downloadConf(this)"><i class="ti ti-download"></i> Скачать .conf</button>
                     </div>
                 </div>
                 `).join('')}
             </div>
-            <div class="qr-hint">QR содержит .conf для AmneziaWG, как в официальном экспорте Amnezia Client.</div>
+            <div class="qr-hint">QR содержит Amnezia VPN key; при нескольких частях они переключаются как в Amnezia Client.</div>
            </div>`
         : '';
 
@@ -2292,7 +2325,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             mix-blend-mode: normal;
         }
         .qr-image-awg {
-            width: min(520px, 100%);
+            width: min(420px, 100%);
             padding: 14px;
             image-rendering: pixelated;
         }
@@ -2317,6 +2350,16 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             font-weight: 600;
             color: var(--text);
         }
+        .awg-qr-progress {
+            min-height: 18px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .awg-qr-progress[hidden] { display: none; }
         .awg-qr-actions {
             display: flex;
             flex-wrap: wrap;
@@ -2487,6 +2530,21 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             success(btn);
         }
 
+        function setupAwgQrRotation() {
+            document.querySelectorAll('img[data-qr-series]').forEach(img => {
+                let series = [];
+                try { series = JSON.parse(img.dataset.qrSeries || '[]'); } catch (e) {}
+                if (!Array.isArray(series) || series.length <= 1) return;
+                const progress = img.closest('.awg-qr-card')?.querySelector('.awg-qr-progress');
+                let index = 0;
+                setInterval(() => {
+                    index = (index + 1) % series.length;
+                    img.src = series[index];
+                    if (progress) progress.textContent = 'QR ' + (index + 1) + '/' + series.length;
+                }, 1000);
+            });
+        }
+
         function copyUri(btn) {
             const allBtns = document.querySelectorAll('.location-configs .copy-btn');
             let idx = 0;
@@ -2526,6 +2584,8 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                 toast.classList.remove('show');
             }, 1600);
         }
+
+        setupAwgQrRotation();
     </script>
 </body>
 </html>`;
