@@ -10,11 +10,11 @@
 [Node.js](package.json)
 [Hysteria](https://v2.hysteria.network/)
 [Xray](https://xtls.github.io/)
-[AmneziaWG](https://github.com/amnezia-vpn/amneziawg-go)
+[AmneziaWG](https://docs.amnezia.org/ru/documentation/amnezia-wg/)
 [![Telegram](https://img.shields.io/badge/Telegram-Chat-2CA5E0?logo=telegram&logoColor=white)](https://t.me/+JKFdEr7TqvIyOTFi)
 [![Поддержать](https://img.shields.io/badge/%E2%99%A5-%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-EC4899)](https://celerity.help)
 
-**C³ CELERITY** by Click Connect — современная веб-панель для управления серверами [Hysteria 2](https://v2.hysteria.network/), [Xray VLESS](https://xtls.github.io/) и [AmneziaWG 2.0](https://github.com/amnezia-vpn/amneziawg-go) с централизованной авторизацией, автоматической настройкой нод и гибким распределением пользователей по группам.
+**C³ CELERITY** by Click Connect — современная веб-панель для управления серверами [Hysteria 2](https://v2.hysteria.network/), [Xray VLESS](https://xtls.github.io/) и [AmneziaWG 2.0](https://docs.amnezia.org/ru/documentation/amnezia-wg/) с централизованной авторизацией, автоматической настройкой нод и гибким распределением пользователей по группам.
 
 **Создана для скорости:** Лёгкая архитектура, оптимизированная для быстрой работы на любом масштабе.
 

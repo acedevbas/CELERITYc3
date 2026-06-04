@@ -14,16 +14,16 @@ const DEFAULTS = {
     persistentKeepalive: 25,
     allowedIPs: ['0.0.0.0/0'],
     jc: 4,
-    jmin: 40,
-    jmax: 70,
+    jmin: 10,
+    jmax: 50,
     s1: 0,
     s2: 0,
     s3: 0,
     s4: 0,
-    h1: '1',
-    h2: '2',
-    h3: '3',
-    h4: '4',
+    h1: '',
+    h2: '',
+    h3: '',
+    h4: '',
     i1: '',
     i2: '',
     i3: '',
@@ -38,6 +38,98 @@ function base64Key(buf) {
 
 function randomKey() {
     return base64Key(crypto.randomBytes(32));
+}
+
+function toPlainConfig(config = {}) {
+    if (config && typeof config.toObject === 'function') {
+        return config.toObject({ getters: false, virtuals: false, depopulate: true });
+    }
+    return { ...(config || {}) };
+}
+
+function randomInt(minInclusive, maxExclusive) {
+    return crypto.randomInt(minInclusive, maxExclusive);
+}
+
+function generateAwg2Parameters() {
+    const params = {
+        jc: randomInt(4, 7),
+        jmin: 10,
+        jmax: 50,
+    };
+
+    const initiationSize = 148;
+    const responseSize = 92;
+    const cookieReplySize = 64;
+    const used = new Set();
+
+    let s1 = randomInt(15, 150);
+    used.add(s1);
+
+    let s2 = randomInt(15, 150);
+    while (used.has(s2) || s1 + initiationSize === s2 + responseSize) {
+        s2 = randomInt(15, 150);
+    }
+    used.add(s2);
+
+    let s3 = randomInt(0, 64);
+    while (
+        used.has(s3)
+        || s1 + initiationSize === s3 + cookieReplySize
+        || s2 + responseSize === s3 + cookieReplySize
+    ) {
+        s3 = randomInt(0, 64);
+    }
+    used.add(s3);
+
+    let s4 = randomInt(0, 20);
+    while (used.has(s4)) {
+        s4 = randomInt(0, 20);
+    }
+
+    Object.assign(params, { s1, s2, s3, s4 });
+
+    let min = 5;
+    const max = 2147483647;
+    for (const key of ['h1', 'h2', 'h3', 'h4']) {
+        const first = randomInt(min, max);
+        const second = randomInt(first, max);
+        params[key] = `${first}-${second}`;
+        min = second;
+    }
+
+    return params;
+}
+
+function usesLegacyAwgPlaceholders(cfg) {
+    const h = ['h1', 'h2', 'h3', 'h4'].map(key => String(cfg[key] || '').trim());
+    const s = ['s1', 's2', 's3', 's4'].map(key => parseInt(cfg[key], 10) || 0);
+    return h.join('|') === '1|2|3|4' && s.every(value => value === 0);
+}
+
+function ensureAwg2Parameters(config = {}, options = {}) {
+    const cfg = toPlainConfig(config);
+    const replaceLegacyPlaceholders = options.replaceLegacyPlaceholders === true && usesLegacyAwgPlaceholders(cfg);
+    const shouldFill = replaceLegacyPlaceholders
+        || ['h1', 'h2', 'h3', 'h4'].some(key => !String(cfg[key] || '').trim());
+
+    if (!shouldFill) return cfg;
+
+    const params = generateAwg2Parameters();
+    for (const [key, value] of Object.entries(params)) {
+        if (replaceLegacyPlaceholders || cfg[key] === undefined || cfg[key] === '' || cfg[key] === 0) {
+            cfg[key] = value;
+        }
+    }
+    return cfg;
+}
+
+function buildConfigUpdate(config = {}, prefix = 'amneziawg') {
+    const update = {};
+    for (const [key, value] of Object.entries(toPlainConfig(config))) {
+        if (value !== undefined) update[`${prefix}.${key}`] = value;
+    }
+    return update;
 }
 
 function generateWireGuardKeyPair() {
@@ -143,14 +235,17 @@ function normalizeInterfaceName(value) {
 }
 
 function normalizeConfig(config = {}) {
-    const cfg = { ...DEFAULTS, ...config };
+    const cfg = { ...DEFAULTS, ...toPlainConfig(config) };
     cfg.interfaceName = normalizeInterfaceName(cfg.interfaceName);
     cfg.serverAddress = String(cfg.serverAddress || DEFAULTS.serverAddress).trim();
     cfg.clientCidr = String(cfg.clientCidr || DEFAULTS.clientCidr).trim();
     cfg.dns = normalizeStringList(cfg.dns, DEFAULTS.dns);
     cfg.allowedIPs = normalizeStringList(cfg.allowedIPs, DEFAULTS.allowedIPs);
     cfg.mtu = Math.min(9000, Math.max(576, parseInt(cfg.mtu, 10) || DEFAULTS.mtu));
-    cfg.persistentKeepalive = Math.min(65535, Math.max(0, parseInt(cfg.persistentKeepalive, 10) || DEFAULTS.persistentKeepalive));
+    const keepalive = parseInt(cfg.persistentKeepalive, 10);
+    cfg.persistentKeepalive = Number.isInteger(keepalive)
+        ? Math.min(65535, Math.max(0, keepalive))
+        : DEFAULTS.persistentKeepalive;
     ['jc', 'jmin', 'jmax', 's1', 's2', 's3', 's4'].forEach(key => {
         cfg[key] = Math.min(65535, Math.max(0, parseInt(cfg[key], 10) || 0));
     });
@@ -214,7 +309,8 @@ async function ensureUsersPeerMaterial(users, options = {}) {
 }
 
 function ensureNodeKeys(node) {
-    const cfg = normalizeConfig(node.amneziawg || {});
+    const current = ensureAwg2Parameters(node.amneziawg || {}, { replaceLegacyPlaceholders: true });
+    const cfg = normalizeConfig(current);
     if (!isBase64Key(cfg.privateKey)) {
         const pair = generateWireGuardKeyPair();
         cfg.privateKey = pair.privateKey;
@@ -222,13 +318,16 @@ function ensureNodeKeys(node) {
     } else if (!isBase64Key(cfg.publicKey)) {
         cfg.publicKey = privateKeyToPublic(cfg.privateKey);
     }
-    node.amneziawg = { ...(node.amneziawg || {}), ...cfg };
+    node.amneziawg = { ...toPlainConfig(node.amneziawg || {}), ...cfg };
     return { privateKey: cfg.privateKey, publicKey: cfg.publicKey };
 }
 
 function renderAwgInterface(cfg, { includeAddress = true, includeListenPort = true } = {}) {
     const lines = ['[Interface]'];
     if (includeAddress) lines.push(`Address = ${cfg.serverAddress}`);
+    if (!isBase64Key(cfg.privateKey)) {
+        throw new Error('AmneziaWG server private key is missing or invalid');
+    }
     lines.push(`PrivateKey = ${cfg.privateKey}`);
     if (includeListenPort) lines.push(`ListenPort = ${cfg.listenPort}`);
     if (cfg.mtu) lines.push(`MTU = ${cfg.mtu}`);
@@ -252,7 +351,7 @@ function renderAwgInterface(cfg, { includeAddress = true, includeListenPort = tr
 
 function generateServerConfig(node, users = []) {
     ensureNodeKeys(node);
-    const cfg = normalizeConfig({ ...(node.amneziawg || {}), listenPort: node.port || 51820 });
+    const cfg = normalizeConfig({ ...toPlainConfig(node.amneziawg || {}), listenPort: node.port || 51820 });
     const lines = renderAwgInterface(cfg);
 
     users.forEach(user => {
@@ -275,7 +374,7 @@ function formatEndpointHost(host) {
 }
 
 function generateClientConfig(user, node) {
-    const cfg = normalizeConfig({ ...(node.amneziawg || {}), listenPort: node.port || 51820 });
+    const cfg = normalizeConfig({ ...toPlainConfig(node.amneziawg || {}), listenPort: node.port || 51820 });
     if (!isBase64Key(cfg.publicKey)) {
         throw new Error(`AmneziaWG node ${node.name || node._id || ''} has no public key; run Auto Setup or save the node first`);
     }
@@ -321,6 +420,9 @@ module.exports = {
     normalizeConfig,
     normalizeStringList,
     normalizeIpv4Cidr,
+    generateAwg2Parameters,
+    ensureAwg2Parameters,
+    buildConfigUpdate,
     generateWireGuardKeyPair,
     randomKey,
     isBase64Key,

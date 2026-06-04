@@ -9,6 +9,7 @@ const logger = require('../utils/logger');
 const config = require('../../config');
 const cryptoService = require('./cryptoService');
 const Settings = require('../models/settingsModel');
+const HyNode = require('../models/hyNodeModel');
 const configGenerator = require('./configGenerator');
 const amneziawgService = require('./amneziawgService');
 
@@ -759,6 +760,20 @@ function getAmneziawgConfigPath(config = {}) {
     return `${AMNEZIAWG_CONFIG_DIR}/${getAmneziawgInterfaceName(config)}.conf`;
 }
 
+async function hydrateAmneziawgPrivateKey(node) {
+    if (!node?._id || amneziawgService.isBase64Key(node.amneziawg?.privateKey)) return node;
+    const fresh = await HyNode.findById(node._id).select('+amneziawg.privateKey').lean();
+    if (fresh?.amneziawg?.privateKey) {
+        node.amneziawg = {
+            ...(node.amneziawg && typeof node.amneziawg.toObject === 'function'
+                ? node.amneziawg.toObject({ getters: false, virtuals: false })
+                : (node.amneziawg || {})),
+            privateKey: fresh.amneziawg.privateKey,
+        };
+    }
+    return node;
+}
+
 const AMNEZIAWG_INSTALL_SCRIPT = `#!/bin/bash
 set -e
 
@@ -859,6 +874,9 @@ async function setupAmneziawgNode(node, options = {}) {
             log('AmneziaWG stack installed');
         }
 
+        await hydrateAmneziawgPrivateKey(node);
+        node.amneziawg = amneziawgService.ensureAwg2Parameters(node.amneziawg || {}, { replaceLegacyPlaceholders: true });
+        const keys = amneziawgService.ensureNodeKeys(node);
         const cfg = amneziawgService.normalizeConfig(node.amneziawg || {});
         const interfaceName = cfg.interfaceName;
         const listenPort = node.port || 51820;
@@ -913,7 +931,7 @@ awg show ${interfaceName}
             await Settings.update({ lastInitScript: node.initScript }).catch(() => {});
         }
 
-        return { success: true, logs, amneziawgKeys: { publicKey: node.amneziawg?.publicKey || '' } };
+        return { success: true, logs, amneziawgKeys: { publicKey: keys.publicKey || '' } };
     } catch (error) {
         log(`Error: ${error.message}`);
         return { success: false, error: error.message, logs };

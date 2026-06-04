@@ -530,18 +530,14 @@ function parseAmneziawgFormFields(body) {
         ? parseBool(body, 'amneziawg.advancedSecurity', true)
         : true;
     amneziawg.jc = num('jc', 4);
-    amneziawg.jmin = num('jmin', 40);
-    amneziawg.jmax = num('jmax', 70);
+    amneziawg.jmin = num('jmin', 10);
+    amneziawg.jmax = num('jmax', 50);
     ['s1', 's2', 's3', 's4'].forEach(key => {
         amneziawg[key] = num(key, 0);
     });
     ['h1', 'h2', 'h3', 'h4', 'i1', 'i2', 'i3', 'i4', 'i5'].forEach(key => {
         amneziawg[key] = String(body[`amneziawg.${key}`] || '').trim();
     });
-    if (!amneziawg.h1) amneziawg.h1 = '1';
-    if (!amneziawg.h2) amneziawg.h2 = '2';
-    if (!amneziawg.h3) amneziawg.h3 = '3';
-    if (!amneziawg.h4) amneziawg.h4 = '4';
 
     return amneziawg;
 }

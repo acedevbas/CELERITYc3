@@ -187,7 +187,7 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
         }
 
         if (nodeType === 'amneziawg') {
-            nodeData.amneziawg = amneziawg || {};
+            nodeData.amneziawg = amneziawgService.ensureAwg2Parameters(amneziawg || {}, { replaceLegacyPlaceholders: true });
             const keys = amneziawgService.ensureNodeKeys(nodeData);
             nodeData.amneziawg.privateKey = keys.privateKey;
             nodeData.amneziawg.publicKey = keys.publicKey;
@@ -306,6 +306,7 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
 
         if (nextType === 'amneziawg' && updates.amneziawg) {
             const mergedAmneziawg = { ...(existing.amneziawg || {}), ...updates.amneziawg };
+            Object.assign(mergedAmneziawg, amneziawgService.ensureAwg2Parameters(mergedAmneziawg, { replaceLegacyPlaceholders: true }));
             const keys = amneziawgService.ensureNodeKeys({ amneziawg: mergedAmneziawg });
             mergedAmneziawg.privateKey = keys.privateKey;
             mergedAmneziawg.publicKey = keys.publicKey;
@@ -454,7 +455,7 @@ router.post('/:id/reset-status', requireScope('nodes:write'), async (req, res) =
  */
 router.get('/:id/agent-info', requireScope('nodes:read'), async (req, res) => {
     try {
-        const node = await HyNode.findById(req.params.id).select('+amneziawg.privateKey');
+        const node = await HyNode.findById(req.params.id);
         if (!node) return res.status(404).json({ error: 'Node not found' });
         if (node.type !== 'xray') return res.status(400).json({ error: 'Not an Xray node' });
 
@@ -582,7 +583,7 @@ router.delete('/:id/groups/:groupId', requireScope('nodes:write'), async (req, r
  */
 router.get('/:id/config', requireScope('nodes:read'), async (req, res) => {
     try {
-        const node = await HyNode.findById(req.params.id);
+        const node = await HyNode.findById(req.params.id).select('+amneziawg.privateKey');
         
         if (!node) {
             return res.status(404).json({ error: 'Node not found' });
@@ -608,10 +609,7 @@ router.get('/:id/config', requireScope('nodes:read'), async (req, res) => {
             await amneziawgService.ensureUsersPeerMaterial(users, { clientCidr: node.amneziawg?.clientCidr });
             const configContent = configGenerator.generateAmneziawgServerConfig(node, users);
             await HyNode.updateOne({ _id: node._id }, {
-                $set: {
-                    'amneziawg.privateKey': node.amneziawg.privateKey,
-                    'amneziawg.publicKey': node.amneziawg.publicKey,
-                },
+                $set: amneziawgService.buildConfigUpdate(node.amneziawg || {}),
             });
             return res.type('text/plain').send(configContent);
         }
@@ -630,7 +628,7 @@ router.get('/:id/config', requireScope('nodes:read'), async (req, res) => {
  */
 router.post('/:id/setup-port-hopping', requireScope('nodes:write'), async (req, res) => {
     try {
-        const node = await HyNode.findById(req.params.id).select('+amneziawg.privateKey');
+        const node = await HyNode.findById(req.params.id);
         
         if (!node) {
             return res.status(404).json({ error: 'Node not found' });
@@ -741,7 +739,7 @@ router.post('/:id/generate-xray-keys', requireScope('nodes:write'), async (req, 
  */
 router.post('/:id/setup', requireScope('nodes:write'), async (req, res) => {
     try {
-        const node = await HyNode.findById(req.params.id);
+        const node = await HyNode.findById(req.params.id).select('+amneziawg.privateKey');
 
         if (!node) {
             return res.status(404).json({ error: 'Node not found' });
@@ -788,6 +786,7 @@ router.post('/:id/setup', requireScope('nodes:write'), async (req, res) => {
         if (result.success) {
             const updateFields = { status: 'online', lastSync: new Date(), lastError: '', healthFailures: 0 };
             if (node.type === 'hysteria') updateFields.useTlsFiles = result.useTlsFiles;
+            if (node.type === 'amneziawg') Object.assign(updateFields, amneziawgService.buildConfigUpdate(node.amneziawg || {}));
             await HyNode.findByIdAndUpdate(req.params.id, { $set: updateFields });
             await invalidateNodesCache();
             logger.info(`[Nodes API] Auto-setup completed for ${node.name} (${node.type})`);

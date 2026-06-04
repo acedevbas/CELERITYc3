@@ -403,6 +403,8 @@ router.post('/nodes', async (req, res) => {
             }
         } else if (nodeType === 'amneziawg') {
             nodeData.amneziawg = parseAmneziawgFormFields(req.body);
+            nodeData.amneziawg = require('../../services/amneziawgService')
+                .ensureAwg2Parameters(nodeData.amneziawg, { replaceLegacyPlaceholders: true });
             const awgError = validateAmneziawgFormFields(nodeData.amneziawg);
             if (awgError) {
                 return res.redirect(`/panel/nodes/add?error=${encodeURIComponent(awgError)}`);
@@ -697,6 +699,8 @@ router.post('/nodes/:id', async (req, res) => {
                 ...existingAwg,
                 ...parseAmneziawgFormFields(req.body),
             };
+            updates.amneziawg = require('../../services/amneziawgService')
+                .ensureAwg2Parameters(updates.amneziawg, { replaceLegacyPlaceholders: true });
             const awgError = validateAmneziawgFormFields(updates.amneziawg);
             if (awgError) {
                 return res.redirect(`/panel/nodes/${nodeId}?error=${encodeURIComponent(awgError)}`);
@@ -821,6 +825,10 @@ router.post('/nodes/:id/setup', async (req, res) => {
             const updateFields = { status: 'online', lastSync: new Date(), lastError: '', healthFailures: 0 };
             if (node.type === 'hysteria') updateFields.useTlsFiles = result.useTlsFiles;
             if (node.type === 'xray' && node.cascadeRole === 'bridge') updateFields.status = 'offline';
+            if (node.type === 'amneziawg') {
+                const awgService = require('../../services/amneziawgService');
+                Object.assign(updateFields, awgService.buildConfigUpdate(node.amneziawg || {}));
+            }
             await HyNode.findByIdAndUpdate(req.params.id, { $set: updateFields });
             await invalidateNodesCache();
 

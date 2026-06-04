@@ -3,6 +3,10 @@
 C3 CELERITY supports `amneziawg` as a first-class node type alongside
 `hysteria`, `xray`, and `virtual`.
 
+The protocol parameters follow AmneziaWG 2.0 behavior from the official
+Amnezia documentation and the self-hosted AWG2 logic in
+`amnezia-vpn/amnezia-client` (`AwgInstaller::generateAwgParameters`).
+
 ## What Is Deployed
 
 Auto setup installs:
@@ -31,6 +35,9 @@ Node settings live in `HyNode.amneziawg`:
 - Client defaults: `dns`, `allowedIPs`, `mtu`, `persistentKeepalive`.
 - Keys: node `privateKey` is stored with `select:false`; `publicKey` is safe to display.
 - AmneziaWG 2.0 obfuscation fields: `Jc`, `Jmin`, `Jmax`, `S1`-`S4`, `H1`-`H4`, `I1`-`I5`.
+- New nodes generate AWG2-style `H1`-`H4` ranges and `S1`-`S4` junk sizes.
+  Legacy placeholder values (`H1=1`, `H2=2`, `H3=3`, `H4=4`, `S*=0`) are
+  replaced during setup/sync.
 - Peer flag: `AdvancedSecurity = true` by default.
 
 User peer material lives in `HyUser.amneziawg`:

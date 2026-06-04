@@ -843,12 +843,10 @@ class SyncService {
             const cfg = amneziawgService.normalizeConfig(node.amneziawg || {});
             const users = await this._getUsersForNode(node);
             await amneziawgService.ensureUsersPeerMaterial(users, { clientCidr: cfg.clientCidr });
+            node.amneziawg = amneziawgService.ensureAwg2Parameters(node.amneziawg || {}, { replaceLegacyPlaceholders: true });
             amneziawgService.ensureNodeKeys(node);
             await HyNode.updateOne({ _id: node._id }, {
-                $set: {
-                    'amneziawg.privateKey': node.amneziawg.privateKey,
-                    'amneziawg.publicKey': node.amneziawg.publicKey,
-                },
+                $set: amneziawgService.buildConfigUpdate(node.amneziawg || {}),
             });
 
             const configContent = configGenerator.generateAmneziawgServerConfig(node, users);

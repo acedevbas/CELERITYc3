@@ -10,11 +10,11 @@
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933?logo=node.js&logoColor=white)](package.json)
 [![Hysteria](https://img.shields.io/badge/Hysteria-2.x-9B59B6)](https://v2.hysteria.network/)
 [![Xray](https://img.shields.io/badge/Xray-VLESS-00ADD8)](https://xtls.github.io/)
-[![AmneziaWG](https://img.shields.io/badge/AmneziaWG-2.0-24D18F)](https://github.com/amnezia-vpn/amneziawg-go)
+[![AmneziaWG](https://img.shields.io/badge/AmneziaWG-2.0-24D18F)](https://docs.amnezia.org/documentation/amnezia-wg/)
 [![Telegram](https://img.shields.io/badge/Telegram-Chat-2CA5E0?logo=telegram&logoColor=white)](https://t.me/+JKFdEr7TqvIyOTFi)
 [![Support](https://img.shields.io/badge/%E2%99%A5-Support-EC4899)](https://celerity.help)
 
-**C³ CELERITY** by Click Connect — modern web panel for managing [Hysteria 2](https://v2.hysteria.network/), [Xray VLESS](https://xtls.github.io/), and [AmneziaWG 2.0](https://github.com/amnezia-vpn/amneziawg-go) proxy/VPN servers with centralized authentication, one-click node setup, and flexible user-to-server group mapping.
+**C³ CELERITY** by Click Connect — modern web panel for managing [Hysteria 2](https://v2.hysteria.network/), [Xray VLESS](https://xtls.github.io/), and [AmneziaWG 2.0](https://docs.amnezia.org/documentation/amnezia-wg/) proxy/VPN servers with centralized authentication, one-click node setup, and flexible user-to-server group mapping.
 
 **Built for performance:** Lightweight architecture designed for speed at any scale.
 

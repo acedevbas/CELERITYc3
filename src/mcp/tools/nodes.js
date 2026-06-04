@@ -273,6 +273,9 @@ async function queryNodes(args) {
                 const users = await syncService._getUsersForNode(fullNode);
                 await amneziawgService.ensureUsersPeerMaterial(users, { clientCidr: fullNode.amneziawg?.clientCidr });
                 result.config = configGenerator.generateAmneziawgServerConfig(fullNode, users);
+                await HyNode.updateOne({ _id: fullNode._id }, {
+                    $set: amneziawgService.buildConfigUpdate(fullNode.amneziawg || {}),
+                });
             } else {
                 result.config = configGenerator.generateNodeConfig(node, `${baseUrl}/api/auth`);
             }
@@ -372,7 +375,7 @@ async function manageNode(args, emit) {
                 };
             }
             if (nodeType === 'amneziawg') {
-                nodeData.amneziawg = data.amneziawg || {};
+                nodeData.amneziawg = amneziawgService.ensureAwg2Parameters(data.amneziawg || {}, { replaceLegacyPlaceholders: true });
                 const keys = amneziawgService.ensureNodeKeys(nodeData);
                 nodeData.amneziawg.privateKey = keys.privateKey;
                 nodeData.amneziawg.publicKey = keys.publicKey;
@@ -436,6 +439,7 @@ async function manageNode(args, emit) {
 
             if (nextType === 'amneziawg' && updates.amneziawg) {
                 const mergedAmneziawg = { ...(existing.amneziawg || {}), ...updates.amneziawg };
+                Object.assign(mergedAmneziawg, amneziawgService.ensureAwg2Parameters(mergedAmneziawg, { replaceLegacyPlaceholders: true }));
                 const keys = amneziawgService.ensureNodeKeys({ amneziawg: mergedAmneziawg });
                 mergedAmneziawg.privateKey = keys.privateKey;
                 mergedAmneziawg.publicKey = keys.publicKey;

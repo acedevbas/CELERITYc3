@@ -329,19 +329,9 @@ router.post('/wizard/self-host', wizardLimiter, async (req, res) => {
                     mtu: 1420,
                     persistentKeepalive: 25,
                     advancedSecurity: true,
-                    jc: 4,
-                    jmin: 40,
-                    jmax: 70,
-                    s1: 0,
-                    s2: 0,
-                    s3: 0,
-                    s4: 0,
-                    h1: '1',
-                    h2: '2',
-                    h3: '3',
-                    h4: '4',
                 },
             };
+            awgNode.amneziawg = amneziawgService.ensureAwg2Parameters(awgNode.amneziawg, { replaceLegacyPlaceholders: true });
             const keys = amneziawgService.ensureNodeKeys(awgNode);
             awgNode.amneziawg.privateKey = keys.privateKey;
             awgNode.amneziawg.publicKey = keys.publicKey;
@@ -459,8 +449,7 @@ async function _runBootstrap(taskId, nodeIds) {
             const updateFields = { status: 'online', lastSync: new Date(), lastError: '', healthFailures: 0 };
             if (node.type === 'hysteria') updateFields.useTlsFiles = result.useTlsFiles;
             if (node.type === 'amneziawg' && node.amneziawg?.privateKey) {
-                updateFields['amneziawg.privateKey'] = node.amneziawg.privateKey;
-                updateFields['amneziawg.publicKey'] = node.amneziawg.publicKey;
+                Object.assign(updateFields, amneziawgService.buildConfigUpdate(node.amneziawg || {}));
             }
             await HyNode.findByIdAndUpdate(nodeId, { $set: updateFields });
             statusChanged = true;
