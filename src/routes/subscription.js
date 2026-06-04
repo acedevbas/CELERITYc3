@@ -25,7 +25,7 @@ const hwidDeviceService = require('../services/hwidDeviceService');
 const webhookService = require('../services/webhookService');
 const amneziawgService = require('../services/amneziawgService');
 
-const SUBSCRIPTION_CACHE_VERSION = 'awg-sub-v3';
+const SUBSCRIPTION_CACHE_VERSION = 'awg-sub-v4';
 
 const CUSTOM_GEOSITE_RULESETS = {
     // ITDog keeps this list updated for Russian resources available only
@@ -399,13 +399,26 @@ function generateWireGuardURI(user, node) {
     if (!ctx) return '';
     const { cfg, peer, host, port, name } = ctx;
     const params = [];
+    _appendUriParam(params, 'privatekey', peer.privateKey);
+    _appendUriParam(params, 'privateKey', peer.privateKey);
+    _appendUriParam(params, 'clientpublickey', peer.publicKey);
+    _appendUriParam(params, 'clientPublicKey', peer.publicKey);
     _appendUriParam(params, 'publickey', cfg.publicKey);
+    _appendUriParam(params, 'publicKey', cfg.publicKey);
+    _appendUriParam(params, 'peerpublickey', cfg.publicKey);
+    _appendUriParam(params, 'peerPublicKey', cfg.publicKey);
     _appendUriParam(params, 'address', peer.address);
     _appendUriParam(params, 'allowedips', cfg.allowedIPs.join(','));
-    if (peer.presharedKey) _appendUriParam(params, 'presharedkey', peer.presharedKey);
+    _appendUriParam(params, 'allowedIPs', cfg.allowedIPs.join(','));
+    if (peer.presharedKey) {
+        _appendUriParam(params, 'presharedkey', peer.presharedKey);
+        _appendUriParam(params, 'presharedKey', peer.presharedKey);
+        _appendUriParam(params, 'preSharedKey', peer.presharedKey);
+    }
     if (cfg.dns?.length) _appendUriParam(params, 'dns', cfg.dns.join(','));
     if (cfg.mtu) _appendUriParam(params, 'mtu', cfg.mtu);
     if (cfg.persistentKeepalive > 0) _appendUriParam(params, 'persistentkeepalive', cfg.persistentKeepalive);
+    if (cfg.persistentKeepalive > 0) _appendUriParam(params, 'persistentKeepalive', cfg.persistentKeepalive);
     return `wireguard://${encodeURIComponent(peer.privateKey)}@${host}:${port}/?${params.join('&')}#${encodeURIComponent(name)}`;
 }
 
@@ -414,13 +427,26 @@ function generateAmneziawgURI(user, node) {
     if (!ctx) return '';
     const { cfg, peer, host, port, name } = ctx;
     const params = [];
+    _appendUriParam(params, 'privatekey', peer.privateKey);
+    _appendUriParam(params, 'privateKey', peer.privateKey);
+    _appendUriParam(params, 'clientpublickey', peer.publicKey);
+    _appendUriParam(params, 'clientPublicKey', peer.publicKey);
     _appendUriParam(params, 'peerpublickey', cfg.publicKey);
+    _appendUriParam(params, 'peerPublicKey', cfg.publicKey);
+    _appendUriParam(params, 'publickey', cfg.publicKey);
+    _appendUriParam(params, 'publicKey', cfg.publicKey);
     _appendUriParam(params, 'address', peer.address);
     _appendUriParam(params, 'allowedips', cfg.allowedIPs.join(','));
-    if (peer.presharedKey) _appendUriParam(params, 'presharedkey', peer.presharedKey);
+    _appendUriParam(params, 'allowedIPs', cfg.allowedIPs.join(','));
+    if (peer.presharedKey) {
+        _appendUriParam(params, 'presharedkey', peer.presharedKey);
+        _appendUriParam(params, 'presharedKey', peer.presharedKey);
+        _appendUriParam(params, 'preSharedKey', peer.presharedKey);
+    }
     if (cfg.dns?.length) _appendUriParam(params, 'dns', cfg.dns.join(','));
     if (cfg.mtu) _appendUriParam(params, 'mtu', cfg.mtu);
     if (cfg.persistentKeepalive > 0) _appendUriParam(params, 'persistentkeepalive', cfg.persistentKeepalive);
+    if (cfg.persistentKeepalive > 0) _appendUriParam(params, 'persistentKeepalive', cfg.persistentKeepalive);
     [
         ['jc', cfg.jc], ['jmin', cfg.jmin], ['jmax', cfg.jmax],
         ['s1', cfg.s1], ['s2', cfg.s2], ['s3', cfg.s3], ['s4', cfg.s4],

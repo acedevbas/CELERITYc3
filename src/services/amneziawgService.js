@@ -266,7 +266,23 @@ async function ensureUsersPeerMaterial(users, options = {}) {
     const reserved = new Set(existing.map(u => u?.amneziawg?.address).filter(Boolean));
 
     for (const user of list) {
-        const current = user.amneziawg || {};
+        let current = user.amneziawg || {};
+        const needsHiddenPeerFields = user._id && (!current.privateKey || !current.presharedKey);
+        if (needsHiddenPeerFields) {
+            const fresh = await HyUser.findById(user._id)
+                .select('+amneziawg.privateKey +amneziawg.presharedKey amneziawg.publicKey amneziawg.address')
+                .lean();
+            if (fresh?.amneziawg) {
+                current = {
+                    ...current,
+                    privateKey: current.privateKey || fresh.amneziawg.privateKey || '',
+                    publicKey: current.publicKey || fresh.amneziawg.publicKey || '',
+                    presharedKey: current.presharedKey || fresh.amneziawg.presharedKey || '',
+                    address: current.address || fresh.amneziawg.address || '',
+                };
+                user.amneziawg = current;
+            }
+        }
         if (current.address) reserved.delete(current.address);
 
         const updates = {};
