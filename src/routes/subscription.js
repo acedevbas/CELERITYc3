@@ -25,6 +25,8 @@ const hwidDeviceService = require('../services/hwidDeviceService');
 const webhookService = require('../services/webhookService');
 const amneziawgService = require('../services/amneziawgService');
 
+const SUBSCRIPTION_CACHE_VERSION = 'awg-sub-v2';
+
 const CUSTOM_GEOSITE_RULESETS = {
     // ITDog keeps this list updated for Russian resources available only
     // from Russian IP ranges. See https://github.com/itdoginfo/allow-domains
@@ -1075,6 +1077,83 @@ function _buildClashVlessProxies(user, node) {
         .map(inbound => _buildClashVlessProxyForInbound(user, node, inbound));
 }
 
+function _yamlString(value) {
+    return JSON.stringify(String(value ?? ''));
+}
+
+function _yamlScalar(value) {
+    return typeof value === 'number' && Number.isFinite(value)
+        ? String(value)
+        : _yamlString(value);
+}
+
+function _yamlStringList(values) {
+    return `[${(values || []).map(v => _yamlString(v)).join(', ')}]`;
+}
+
+function _clientIpFromCidr(value) {
+    return String(value || '').split('/')[0] || '';
+}
+
+function _buildClashAmneziawgProxy(user, node) {
+    const cfg = amneziawgService.normalizeConfig({
+        ...((node.amneziawg && typeof node.amneziawg.toObject === 'function')
+            ? node.amneziawg.toObject({ getters: false, virtuals: false })
+            : (node.amneziawg || {})),
+        listenPort: node.port || 51820,
+    });
+    const peer = user.amneziawg || {};
+    if (!peer.privateKey || !peer.address || !cfg.publicKey) return null;
+
+    const name = `${node.flag || ''} ${node.name || 'AmneziaWG'} AWG2`.trim();
+    const host = cfg.endpointHost || node.domain || node.ip;
+    const lines = [
+        `  - name: ${_yamlString(name)}`,
+        '    type: wireguard',
+        `    server: ${_yamlString(host)}`,
+        `    port: ${node.port || 51820}`,
+        `    ip: ${_yamlString(_clientIpFromCidr(peer.address))}`,
+        `    private-key: ${_yamlString(peer.privateKey)}`,
+        `    public-key: ${_yamlString(cfg.publicKey)}`,
+    ];
+    if (peer.presharedKey) lines.push(`    pre-shared-key: ${_yamlString(peer.presharedKey)}`);
+    lines.push(`    allowed-ips: ${_yamlStringList(cfg.allowedIPs)}`);
+    lines.push(`    udp: true`);
+    lines.push(`    mtu: ${cfg.mtu || 1420}`);
+    if (cfg.persistentKeepalive > 0) lines.push(`    persistent-keepalive: ${cfg.persistentKeepalive}`);
+    if (cfg.dns?.length) {
+        lines.push('    remote-dns-resolve: true');
+        lines.push(`    dns: ${_yamlStringList(cfg.dns)}`);
+    }
+
+    const awgOptions = {
+        jc: cfg.jc,
+        jmin: cfg.jmin,
+        jmax: cfg.jmax,
+        s1: cfg.s1,
+        s2: cfg.s2,
+        s3: cfg.s3,
+        s4: cfg.s4,
+        h1: cfg.h1,
+        h2: cfg.h2,
+        h3: cfg.h3,
+        h4: cfg.h4,
+        i1: cfg.i1,
+        i2: cfg.i2,
+        i3: cfg.i3,
+        i4: cfg.i4,
+        i5: cfg.i5,
+    };
+    lines.push('    amnezia-wg-option:');
+    for (const [key, value] of Object.entries(awgOptions)) {
+        if (value !== undefined && value !== null && String(value) !== '') {
+            lines.push(`      ${key}: ${_yamlScalar(value)}`);
+        }
+    }
+
+    return { name, proxy: lines.join('\n') };
+}
+
 function generateClashYAML(user, nodes, routing) {
     const auth = `${user.userId}:${user.password}`;
     const proxies = [];
@@ -1097,6 +1176,11 @@ function generateClashYAML(user, nodes, routing) {
                 proxyNames.push(name);
                 proxies.push(proxy);
             });
+        } else if (node.type === 'amneziawg') {
+            const built = _buildClashAmneziawgProxy(user, node);
+            if (!built) return;
+            proxyNames.push(built.name);
+            proxies.push(built.proxy);
         } else {
             getNodeConfigs(node).forEach(cfg => {
                 const name = `${node.flag || ''} ${node.name} ${cfg.name}`.trim();
@@ -2924,9 +3008,10 @@ async function serveSubscription(req, res, ctx) {
     // the cache key with "+happ" splits the keyspace so neither variant pollutes
     // the other. For all non-uri formats this is a no-op.
     const isHappUa = /happ/i.test(userAgent || '');
-    const cacheFormat = (isHappUa && (format === 'uri' || format === 'raw'))
+    const baseCacheFormat = (isHappUa && (format === 'uri' || format === 'raw'))
         ? `${format}+happ`
         : format;
+    const cacheFormat = `${baseCacheFormat}:${SUBSCRIPTION_CACHE_VERSION}`;
 
     const cached = await cache.getSubscription(cacheToken, cacheFormat);
     if (cached) {

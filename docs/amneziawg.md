@@ -50,8 +50,18 @@ User peer material lives in `HyUser.amneziawg`:
 
 ## Subscriptions
 
-AmneziaWG is not emitted into URI, Clash, sing-box, V2Ray, or Xray JSON formats
-because there is no broadly compatible `amneziawg://` URI standard.
+AmneziaWG is not emitted into plain URI lists because there is no broadly
+compatible `amneziawg://` URI standard.
+
+Mihomo/Clash subscriptions do include AmneziaWG nodes as `type: wireguard`
+proxies with `amnezia-wg-option` (`jc`, `jmin`, `jmax`, `s1`-`s4`,
+`h1`-`h4`, `i1`-`i5`). This follows mihomo's WireGuard subscription model and
+lets AmneziaWG nodes participate in the same `Proxy` selector and virtual
+groups as VLESS/Hysteria nodes.
+
+sing-box, V2Ray, and Xray JSON subscriptions intentionally skip AmneziaWG:
+their standard WireGuard/Xray outbound schemas cannot represent AWG2
+obfuscation parameters safely.
 
 Use:
 
@@ -74,9 +84,11 @@ This returns an Amnezia `vpn://` key for the same AWG2 config. The aliases
 auto-selected when the request user-agent contains `Amnezia`.
 
 The browser subscription page also renders per-node AmneziaWG cards. The QR
-payload is the plain `.conf` text, matching Amnezia Client's AWG export path:
-`ExportController::generateAwgConfig()` calls `generateSingleQrCode(result.config.toUtf8())`.
-The card also exposes copy/download actions for the same `.conf` file used by
+payload is an Amnezia VPN key QR series, matching
+`SubscriptionUiController::prepareVpnKeyExport()`: the `vpn://` prefix is
+removed before QR generation, and payloads larger than 850 bytes are split into
+the same `magic=1984` QR chunks that Amnezia Client scans. The card also
+exposes copy/download actions for the raw `.conf` file used by
 AmneziaWG-compatible clients.
 
 The default client route is IPv4 full-tunnel (`0.0.0.0/0`). Add IPv6 routes only
