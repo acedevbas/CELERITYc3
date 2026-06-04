@@ -11,6 +11,7 @@ const cache = require('../../services/cacheService');
 const cryptoService = require('../../services/cryptoService');
 const logger = require('../../utils/logger');
 const amneziawgService = require('../../services/amneziawgService');
+const { findUdpPortConflict } = require('../../utils/nodePortConflicts');
 
 async function invalidateNodesCache() {
     await cache.invalidateNodes();
@@ -321,6 +322,13 @@ async function manageNode(args, emit) {
             } else {
                 const existing = await HyNode.findOne({ ip: data.ip, type: nodeType });
                 if (existing) return { error: `A ${nodeType} node with this IP already exists`, code: 409 };
+                const udpConflict = await findUdpPortConflict(HyNode, {
+                    ip: data.ip,
+                    type: nodeType,
+                    port: data.port || (nodeType === 'amneziawg' ? 51820 : 443),
+                    portRange: data.portRange || '20000-50000',
+                });
+                if (udpConflict) return { error: udpConflict.message, code: 409 };
             }
 
             const statsSecret = cryptoService.generateNodeSecret();
@@ -399,7 +407,7 @@ async function manageNode(args, emit) {
         case 'update': {
             if (!id) throw new Error('id is required for update');
             const allowed = [
-                'name', 'domain', 'sni', 'port', 'portRange', 'groups', 'active', 'country', 'cascadeRole', 'type',
+                'name', 'ip', 'domain', 'sni', 'port', 'portRange', 'groups', 'active', 'country', 'cascadeRole', 'type',
                 'virtual', 'xray', 'amneziawg',
                 'hopInterval', 'acme', 'masquerade', 'bandwidth',
                 'ignoreClientBandwidth', 'speedTest', 'disableUDP',
@@ -413,12 +421,12 @@ async function manageNode(args, emit) {
 
             // findByIdAndUpdate skips pre('validate') hooks, so re-implement
             // type-aware invariants here. Mirror the behaviour of routes/nodes.js PUT.
-            const existing = await HyNode.findById(id).select('type ip virtual amneziawg +amneziawg.privateKey').lean();
+            const existing = await HyNode.findById(id).select('type ip port portRange virtual amneziawg +amneziawg.privateKey').lean();
             if (!existing) return { error: `Node '${id}' not found`, code: 404 };
 
             const nextType = updates.type || existing.type;
             const nextVirtual = updates.virtual !== undefined ? updates.virtual : existing.virtual;
-            const nextIp = existing.ip;
+            const nextIp = updates.ip !== undefined ? updates.ip : existing.ip;
 
             if (nextType === 'virtual') {
                 const v = nextVirtual || {};
@@ -435,6 +443,16 @@ async function manageNode(args, emit) {
 
             if (nextType !== 'xray') {
                 updates.cascadeRole = 'standalone';
+            }
+
+            if (nextType !== 'virtual') {
+                const udpConflict = await findUdpPortConflict(HyNode, {
+                    ip: nextIp,
+                    type: nextType,
+                    port: updates.port !== undefined ? updates.port : existing.port,
+                    portRange: updates.portRange !== undefined ? updates.portRange : existing.portRange,
+                }, { excludeId: id });
+                if (udpConflict) return { error: udpConflict.message, code: 409 };
             }
 
             if (nextType === 'amneziawg' && updates.amneziawg) {

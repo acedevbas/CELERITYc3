@@ -526,9 +526,6 @@ function parseAmneziawgFormFields(body) {
     amneziawg.allowedIPs = csv('allowedIPs', ['0.0.0.0/0', '::/0']);
     amneziawg.mtu = num('mtu', 1420, 576, 9000);
     amneziawg.persistentKeepalive = num('persistentKeepalive', 25);
-    amneziawg.advancedSecurity = body['amneziawg.advancedSecurity'] !== undefined
-        ? parseBool(body, 'amneziawg.advancedSecurity', true)
-        : true;
     amneziawg.jc = num('jc', 4);
     amneziawg.jmin = num('jmin', 10);
     amneziawg.jmax = num('jmax', 50);

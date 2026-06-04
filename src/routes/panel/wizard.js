@@ -328,7 +328,6 @@ router.post('/wizard/self-host', wizardLimiter, async (req, res) => {
                     allowedIPs: ['0.0.0.0/0'],
                     mtu: 1420,
                     persistentKeepalive: 25,
-                    advancedSecurity: true,
                 },
             };
             awgNode.amneziawg = amneziawgService.ensureAwg2Parameters(awgNode.amneziawg, { replaceLegacyPlaceholders: true });

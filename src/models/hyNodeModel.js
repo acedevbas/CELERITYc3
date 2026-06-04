@@ -250,7 +250,6 @@ const amneziawgConfigSchema = new mongoose.Schema({
     mtu: { type: Number, default: 1420 },
     persistentKeepalive: { type: Number, default: 25 },
     allowedIPs: { type: [String], default: ['0.0.0.0/0'] },
-    advancedSecurity: { type: Boolean, default: true },
     jc: { type: Number, default: 4 },
     jmin: { type: Number, default: 10 },
     jmax: { type: Number, default: 50 },

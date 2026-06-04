@@ -38,7 +38,9 @@ Node settings live in `HyNode.amneziawg`:
 - New nodes generate AWG2-style `H1`-`H4` ranges and `S1`-`S4` junk sizes.
   Legacy placeholder values (`H1=1`, `H2=2`, `H3=3`, `H4=4`, `S*=0`) are
   replaced during setup/sync.
-- Peer flag: `AdvancedSecurity = 1` by default.
+- Peer blocks use the official AmneziaWG/WireGuard fields only:
+  `PublicKey`, `PresharedKey`, and `AllowedIPs`. The legacy
+  `AdvancedSecurity` switch is not emitted into `.conf` files.
 
 User peer material lives in `HyUser.amneziawg`:
 

@@ -24,12 +24,11 @@ const DEFAULTS = {
     h2: '',
     h3: '',
     h4: '',
-    i1: '',
+    i1: '<r 2><b 0x858000010001000000000669636c6f756403636f6d0000010001c00c000100010000105a00044d583737>',
     i2: '',
     i3: '',
     i4: '',
     i5: '',
-    advancedSecurity: true,
 };
 
 function base64Key(buf) {
@@ -252,7 +251,7 @@ function normalizeConfig(config = {}) {
     ['h1', 'h2', 'h3', 'h4', 'i1', 'i2', 'i3', 'i4', 'i5'].forEach(key => {
         cfg[key] = String(cfg[key] || '').trim();
     });
-    cfg.advancedSecurity = cfg.advancedSecurity !== false;
+    if (!cfg.i1) cfg.i1 = DEFAULTS.i1;
     return cfg;
 }
 
@@ -322,7 +321,11 @@ function ensureNodeKeys(node) {
     return { privateKey: cfg.privateKey, publicKey: cfg.publicKey };
 }
 
-function renderAwgInterface(cfg, { includeAddress = true, includeListenPort = true } = {}) {
+function renderAwgInterface(cfg, {
+    includeAddress = true,
+    includeListenPort = true,
+    specialJunkMode = 'active',
+} = {}) {
     const lines = ['[Interface]'];
     if (includeAddress) lines.push(`Address = ${cfg.serverAddress}`);
     if (!isBase64Key(cfg.privateKey)) {
@@ -343,8 +346,13 @@ function renderAwgInterface(cfg, { includeAddress = true, includeListenPort = tr
     lines.push(`S2 = ${cfg.s2}`);
     lines.push(`S3 = ${cfg.s3}`);
     lines.push(`S4 = ${cfg.s4}`);
-    ['h1', 'h2', 'h3', 'h4', 'i1', 'i2', 'i3', 'i4', 'i5'].forEach(key => {
+    ['h1', 'h2', 'h3', 'h4'].forEach(key => {
         if (cfg[key]) lines.push(`${key.toUpperCase()} = ${cfg[key]}`);
+    });
+    ['i1', 'i2', 'i3', 'i4', 'i5'].forEach(key => {
+        if (!cfg[key]) return;
+        const prefix = specialJunkMode === 'comment' ? '# ' : '';
+        lines.push(`${prefix}${key.toUpperCase()} = ${cfg[key]}`);
     });
     return lines;
 }
@@ -352,7 +360,7 @@ function renderAwgInterface(cfg, { includeAddress = true, includeListenPort = tr
 function generateServerConfig(node, users = []) {
     ensureNodeKeys(node);
     const cfg = normalizeConfig({ ...toPlainConfig(node.amneziawg || {}), listenPort: node.port || 51820 });
-    const lines = renderAwgInterface(cfg);
+    const lines = renderAwgInterface(cfg, { specialJunkMode: 'comment' });
 
     users.forEach(user => {
         const peer = user.amneziawg || {};
@@ -361,7 +369,6 @@ function generateServerConfig(node, users = []) {
         lines.push(`PublicKey = ${peer.publicKey}`);
         if (isBase64Key(peer.presharedKey)) lines.push(`PresharedKey = ${peer.presharedKey}`);
         lines.push(`AllowedIPs = ${peer.address}`);
-        if (cfg.advancedSecurity) lines.push('AdvancedSecurity = 1');
     });
 
     return `${lines.join('\n')}\n`;
@@ -401,7 +408,6 @@ function generateClientConfig(user, node) {
     lines.push(`Endpoint = ${formatEndpointHost(host)}:${node.port || 51820}`);
     lines.push(`AllowedIPs = ${cfg.allowedIPs.join(', ')}`);
     if (cfg.persistentKeepalive > 0) lines.push(`PersistentKeepalive = ${cfg.persistentKeepalive}`);
-    if (cfg.advancedSecurity) lines.push('AdvancedSecurity = 1');
     return `${lines.join('\n')}\n`;
 }
 
