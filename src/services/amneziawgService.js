@@ -361,7 +361,7 @@ function generateServerConfig(node, users = []) {
         lines.push(`PublicKey = ${peer.publicKey}`);
         if (isBase64Key(peer.presharedKey)) lines.push(`PresharedKey = ${peer.presharedKey}`);
         lines.push(`AllowedIPs = ${peer.address}`);
-        if (cfg.advancedSecurity) lines.push('AdvancedSecurity = true');
+        if (cfg.advancedSecurity) lines.push('AdvancedSecurity = 1');
     });
 
     return `${lines.join('\n')}\n`;
@@ -401,7 +401,7 @@ function generateClientConfig(user, node) {
     lines.push(`Endpoint = ${formatEndpointHost(host)}:${node.port || 51820}`);
     lines.push(`AllowedIPs = ${cfg.allowedIPs.join(', ')}`);
     if (cfg.persistentKeepalive > 0) lines.push(`PersistentKeepalive = ${cfg.persistentKeepalive}`);
-    if (cfg.advancedSecurity) lines.push('AdvancedSecurity = true');
+    if (cfg.advancedSecurity) lines.push('AdvancedSecurity = 1');
     return `${lines.join('\n')}\n`;
 }
 
