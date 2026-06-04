@@ -2004,28 +2004,12 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     const trafficLimit = user.trafficLimit ? user.trafficLimit / (1024 * 1024 * 1024) : 0;
     const expireDate = user.expireAt ? new Date(user.expireAt).toLocaleDateString('ru-RU') : 'Бессрочно';
     
-    // Group by location preserving node sort order (Map keeps insertion order for all key types)
-    const locations = new Map();
-    allConfigs.forEach(cfg => {
-        if (!locations.has(cfg.location)) {
-            locations.set(cfg.location, {
-                flag: cfg.flag,
-                configs: [],
-            });
-        }
-        locations.get(cfg.location).configs.push({ name: cfg.name, uri: cfg.uri });
-    });
-
     function escAttr(s) {
         return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
     function escHtml(s) {
         return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-
-    function safeJson(value) {
-        return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
     }
 
     function base64Utf8(value) {
@@ -2107,25 +2091,17 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         });
     }
 
-    const amneziaQrSectionHtml = amneziaQrConfigs.some(cfg => cfg.qrDataUrl)
-        ? `<div class="section section-center qr-section">
-            <h2><i class="ti ti-shield-lock"></i> AMNEZIAWG QR</h2>
-            <div class="awg-qr-grid">
-                ${amneziaQrConfigs.filter(cfg => cfg.qrDataUrl).map(cfg => `
-                <div class="awg-qr-card">
-                    <div class="awg-qr-title">${escHtml(cfg.location)}</div>
-                    <img src="${cfg.qrDataUrl}" alt="AmneziaWG QR" class="qr-image qr-image-standard qr-image-awg">
-                    <div class="awg-qr-actions">
-                        <button class="copy-btn" data-copy-b64="${escAttr(cfg.vpnKeyB64)}" onclick="copyDataText(this)"><i class="ti ti-copy"></i> Копировать ключ</button>
-                        <button class="copy-btn copy-btn-secondary" data-copy-b64="${escAttr(cfg.confB64)}" onclick="copyDataText(this)"><i class="ti ti-file-text"></i> Копировать .conf</button>
-                        <button class="copy-btn copy-btn-secondary" data-copy-b64="${escAttr(cfg.confB64)}" data-filename="${escAttr(cfg.filename)}" onclick="downloadConf(this)"><i class="ti ti-download"></i> Скачать .conf</button>
-                    </div>
-                </div>
-                `).join('')}
-            </div>
-            <div class="qr-hint">QR содержит Amnezia vpn:// ключ; .conf доступен отдельно для ручного импорта.</div>
-           </div>`
-        : '';
+    // Group by location preserving node sort order (Map keeps insertion order for all key types).
+    const locations = new Map();
+    allConfigs.forEach(cfg => {
+        if (!locations.has(cfg.location)) {
+            locations.set(cfg.location, {
+                flag: cfg.flag,
+                configs: [],
+            });
+        }
+        locations.get(cfg.location).configs.push(cfg);
+    });
 
     function resolveButtonUrl(rawUrl, subUrl) {
         if (!rawUrl) return null;
@@ -2480,10 +2456,33 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             gap: 10px;
             padding: 9px 14px;
         }
+        .config-awg {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 10px;
+            padding: 12px 14px 14px;
+        }
+        .config-main {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            min-width: 0;
+        }
         .config-name {
             font-size: 13px;
             color: var(--text);
             font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+        }
+        .awg-inline-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        .awg-inline-hint {
+            margin-top: -4px;
+            text-align: center;
         }
 
         /* === QR — clean, no extra frame.
@@ -2508,38 +2507,11 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             border-radius: var(--radius-sm);
             mix-blend-mode: normal;
         }
-        .qr-image-awg {
-            width: min(420px, 100%);
-            padding: 14px;
+        .qr-image-awg-inline {
+            width: min(280px, 100%);
+            padding: 10px;
+            margin: 2px auto 0;
             image-rendering: pixelated;
-        }
-        .awg-qr-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 12px;
-        }
-        .awg-qr-card {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 10px;
-            padding: 12px;
-            border: 1px solid var(--glass-border);
-            border-radius: var(--radius-sm);
-            background: rgba(255, 255, 255, 0.025);
-            overflow: hidden;
-        }
-        .awg-qr-title {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text);
-        }
-        .awg-qr-actions {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 8px;
-            max-width: 100%;
         }
         .copy-btn-secondary {
             background: rgba(255, 255, 255, 0.06);
@@ -2604,6 +2576,16 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
 
         @media (max-width: 380px) {
             .btn-grid { grid-template-columns: 1fr; }
+            .config-main {
+                align-items: stretch;
+                flex-direction: column;
+            }
+            .awg-inline-actions {
+                justify-content: stretch;
+            }
+            .awg-inline-actions .copy-btn {
+                flex: 1 1 130px;
+            }
             .stat-value { font-size: 15px; }
             .header h1 { font-size: 21px; }
         }
@@ -2658,10 +2640,24 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                 <div class="location-configs">
                     <div class="location-configs-inner">
                         ${loc.configs.map(cfg => `
-                        <div class="config">
-                            <span class="config-name">${cfg.name}</span>
-                            <button class="copy-btn" onclick="copyUri(this)"><i class="ti ti-copy"></i> Копировать</button>
+                        ${cfg.type === 'amneziawg' ? `
+                        <div class="config config-awg">
+                            <div class="config-main">
+                                <span class="config-name">${escHtml(cfg.name)}</span>
+                                <div class="awg-inline-actions">
+                                    <button class="copy-btn" data-copy-b64="${escAttr(cfg.vpnKeyB64)}" onclick="copyDataText(this)"><i class="ti ti-copy"></i> Копировать</button>
+                                    <button class="copy-btn copy-btn-secondary" data-copy-b64="${escAttr(cfg.confB64)}" data-filename="${escAttr(cfg.filename)}" onclick="downloadConf(this)"><i class="ti ti-download"></i> Скачать .conf</button>
+                                </div>
+                            </div>
+                            ${cfg.qrDataUrl ? `<img src="${cfg.qrDataUrl}" alt="AmneziaWG QR" class="qr-image qr-image-standard qr-image-awg-inline">` : ''}
+                            <div class="qr-hint awg-inline-hint">QR содержит Amnezia vpn:// ключ</div>
                         </div>
+                        ` : `
+                        <div class="config">
+                            <span class="config-name">${escHtml(cfg.name)}</span>
+                            <button class="copy-btn" data-copy-b64="${escAttr(base64Utf8(cfg.uri))}" onclick="copyDataText(this)"><i class="ti ti-copy"></i> Копировать</button>
+                        </div>
+                        `}
                         `).join('')}
                     </div>
                 </div>
@@ -2670,17 +2666,12 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         </div>
 
         ${qrSectionHtml}
-        ${amneziaQrSectionHtml}
         ${buttonsHtml}
     </div>
 
     <div class="toast" id="toast"><i class="ti ti-check"></i> Скопировано</div>
 
     <script>
-        const uris = ${safeJson(allConfigs.map(c => c.uri))};
-
-        function copyText(text, btn) { doCopy(text, btn); }
-
         function decodeB64Utf8(value) {
             const bytes = Uint8Array.from(atob(value || ''), c => c.charCodeAt(0));
             return new TextDecoder().decode(bytes);
@@ -2702,15 +2693,6 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
             success(btn);
-        }
-
-        function copyUri(btn) {
-            const allBtns = document.querySelectorAll('.location-configs .copy-btn');
-            let idx = 0;
-            for (let i = 0; i < allBtns.length; i++) {
-                if (allBtns[i] === btn) { idx = i; break; }
-            }
-            doCopy(uris[idx], btn);
         }
 
         function doCopy(text, btn) {
