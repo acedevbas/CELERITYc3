@@ -65,7 +65,8 @@ config block per node.
 
 The browser subscription page also renders per-node AmneziaWG cards. The QR
 payload is a compressed Amnezia native third-party AWG config with
-`containers/defaultContainer/awg/last_config`, so Amnezia VPN can import it
+`containers/defaultContainer/awg/last_config` and an `amnezia-awg2` container,
+so Amnezia VPN can import it
 without SSH credentials. The card also exposes copy/download actions for the
 plain `.conf` file used by AmneziaWG-compatible clients.
 

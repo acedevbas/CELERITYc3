@@ -365,7 +365,7 @@ AmneziaWG, если у каждого реального протокола св
 Подписки для AmneziaWG выдаются как `.conf` config:
 `/api/files/<token>?format=amneziawg`. На HTML-странице подписки также
 показываются карточки по каждой AmneziaWG-ноде: QR содержит сжатый Amnezia
-native third-party AWG payload для Amnezia VPN, а кнопки копирования/скачивания
+native third-party AWG2 payload для Amnezia VPN, а кнопки копирования/скачивания
 отдают обычный `.conf`.
 Авторазвертывание включает IPv4 forwarding/NAT для клиентского пула AmneziaWG.
 Подробности: [AmneziaWG support](docs/amneziawg.md).

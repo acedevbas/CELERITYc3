@@ -448,7 +448,7 @@ function generateAmneziaNativeConfig(user, node, options = {}) {
 
     return {
         containers: [{
-            container: 'amnezia-awg',
+            container: 'amnezia-awg2',
             awg: {
                 last_config: JSON.stringify(lastConfig),
                 isThirdPartyConfig: true,
@@ -457,7 +457,7 @@ function generateAmneziaNativeConfig(user, node, options = {}) {
                 protocol_version: '2',
             },
         }],
-        defaultContainer: 'amnezia-awg',
+        defaultContainer: 'amnezia-awg2',
         description: options.description || `${node.flag || ''} ${node.name || 'AmneziaWG'}`.trim() || 'AmneziaWG',
         hostName: host,
         dns1: cfg.dns[0] || '1.1.1.1',
