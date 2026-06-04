@@ -25,7 +25,7 @@ const hwidDeviceService = require('../services/hwidDeviceService');
 const webhookService = require('../services/webhookService');
 const amneziawgService = require('../services/amneziawgService');
 
-const SUBSCRIPTION_CACHE_VERSION = 'awg-sub-v5';
+const SUBSCRIPTION_CACHE_VERSION = 'awg-sub-v6';
 
 const CUSTOM_GEOSITE_RULESETS = {
     // ITDog keeps this list updated for Russian resources available only
@@ -1975,12 +1975,14 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             });
         } else if (node.type === 'amneziawg') {
             try {
+                const conf = amneziawgService.generateClientConfig(user, node);
                 allConfigs.push({
                     location: node.name,
                     flag: node.flag || '🌐',
                     name: 'AmneziaWG',
                     type: 'amneziawg',
-                    uri: amneziawgService.generateClientConfig(user, node),
+                    uri: generateWireGuardURI(user, node) || generateAmneziawgURI(user, node) || conf,
+                    conf,
                     amneziaNativeConfig: amneziawgService.generateAmneziaNativeConfig(user, node),
                 });
             } catch (err) {
@@ -2077,16 +2079,17 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
 
     const amneziaQrConfigs = allConfigs.filter(cfg => cfg.type === 'amneziawg');
     for (const cfg of amneziaQrConfigs) {
-        cfg.confB64 = base64Utf8(cfg.uri);
+        const conf = cfg.conf || cfg.uri;
+        cfg.confB64 = base64Utf8(conf);
         cfg.vpnKey = amneziaVpnKeyFromConfig(cfg.amneziaNativeConfig);
         cfg.vpnKeyB64 = base64Utf8(cfg.vpnKey);
         cfg.filename = `${String(cfg.location || 'amneziawg').replace(/[^A-Za-z0-9._-]+/g, '-') || 'amneziawg'}.conf`;
         const confHash = crypto
             .createHash('sha256')
-            .update(cfg.uri)
+            .update(conf)
             .digest('hex')
             .slice(0, 16);
-        cfg.qrDataUrl = await buildQrDataUrl(cfg.uri, `awg-conf-v4:${confHash}`, {
+        cfg.qrDataUrl = await buildQrDataUrl(conf, `awg-conf-v4:${confHash}`, {
             width: 520,
             margin: 1,
             errorCorrectionLevel: 'L',
