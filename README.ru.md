@@ -366,9 +366,9 @@ AmneziaWG, если у каждого реального протокола св
 `/api/files/<token>?format=amneziawg`, а для Amnezia VPN как `vpn://` key:
 `/api/files/<token>?format=amnezia` (также выбирается автоматически по
 Amnezia user-agent). На HTML-странице подписки также
-показываются карточки по каждой AmneziaWG-ноде: QR содержит Amnezia-native
-chunked AWG2 payload для Amnezia VPN и запасной QR с обычным `.conf`, а кнопки
-копирования/скачивания отдают этот конфиг напрямую.
+показываются карточки по каждой AmneziaWG-ноде: QR содержит обычный `.conf`,
+как официальный AWG export в Amnezia Client, а кнопки копирования/скачивания
+отдают этот конфиг напрямую.
 Авторазвертывание включает IPv4 forwarding/NAT для клиентского пула AmneziaWG.
 Подробности: [AmneziaWG support](docs/amneziawg.md).
 

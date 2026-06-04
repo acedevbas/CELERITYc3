@@ -73,14 +73,11 @@ This returns an Amnezia `vpn://` key for the same AWG2 config. The aliases
 `format=amnezia-vpn` and `format=vpn` are also accepted, and the format is
 auto-selected when the request user-agent contains `Amnezia`.
 
-The browser subscription page also renders per-node AmneziaWG cards. The primary
-QR payload is an Amnezia-native AWG2 config compressed with Qt-compatible
-`qCompress` framing and split into QR chunks with Amnezia's `1984` magic marker
-when needed. Each chunk uses the same `QDataStream` layout as Amnezia Client:
-`qint16 magic`, `quint8 chunksCount`, `quint8 chunkId`, then a serialized
-`QByteArray` chunk. The card also exposes a plain `.conf` QR fallback plus
-copy/download actions for the same `.conf` file used by AmneziaWG-compatible
-clients.
+The browser subscription page also renders per-node AmneziaWG cards. The QR
+payload is the plain `.conf` text, matching Amnezia Client's AWG export path:
+`ExportController::generateAwgConfig()` calls `generateSingleQrCode(result.config.toUtf8())`.
+The card also exposes copy/download actions for the same `.conf` file used by
+AmneziaWG-compatible clients.
 
 The default client route is IPv4 full-tunnel (`0.0.0.0/0`). Add IPv6 routes only
 when the server interface and forwarding are explicitly configured for IPv6.

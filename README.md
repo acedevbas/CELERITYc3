@@ -353,9 +353,9 @@ Subscriptions for this protocol are served as `.conf` configs via
 `/api/files/<token>?format=amneziawg` and as Amnezia VPN `vpn://` keys via
 `/api/files/<token>?format=amnezia` (also auto-selected for Amnezia user agents).
 The browser subscription page also shows
-per-node AmneziaWG cards: QR codes include an Amnezia-native chunked AWG2 payload
-for Amnezia VPN plus a plain `.conf` QR fallback, and copy/download buttons expose
-the same `.conf` directly.
+per-node AmneziaWG cards: QR codes contain the same plain `.conf` payload as the
+official Amnezia Client AWG export, and copy/download buttons expose that `.conf`
+directly.
 Auto setup enables IPv4 forwarding/NAT for the AmneziaWG client pool.
 
 ---
