@@ -174,7 +174,7 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
             paths: paths || {},
             settings: settings || {},
             rankingCoefficient: rankingCoefficient || 1.0,
-            cascadeRole: nodeType === 'virtual' ? 'standalone' : (cascadeRole || 'standalone'),
+            cascadeRole: nodeType === 'xray' ? (cascadeRole || 'standalone') : 'standalone',
             country: country || '',
             comment: typeof comment === 'string' ? comment.trim().slice(0, 500) : '',
             initScript: req.body.initScript || '',
@@ -288,6 +288,10 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
             return res.status(400).json({ error: `Node type ${nextType} requires ip` });
         }
 
+        if (nextType !== 'xray') {
+            updates.cascadeRole = 'standalone';
+        }
+
         if (nextType !== 'virtual') {
             const udpConflict = await findUdpPortConflict(HyNode, {
                 ip: nextIp,
@@ -301,10 +305,14 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
         }
 
         if (nextType === 'amneziawg' && updates.amneziawg) {
-            updates.amneziawg = { ...(existing.amneziawg || {}), ...updates.amneziawg };
-            const keys = amneziawgService.ensureNodeKeys({ amneziawg: updates.amneziawg });
-            updates.amneziawg.privateKey = keys.privateKey;
-            updates.amneziawg.publicKey = keys.publicKey;
+            const mergedAmneziawg = { ...(existing.amneziawg || {}), ...updates.amneziawg };
+            const keys = amneziawgService.ensureNodeKeys({ amneziawg: mergedAmneziawg });
+            mergedAmneziawg.privateKey = keys.privateKey;
+            mergedAmneziawg.publicKey = keys.publicKey;
+            delete updates.amneziawg;
+            for (const [key, value] of Object.entries(mergedAmneziawg)) {
+                updates[`amneziawg.${key}`] = value;
+            }
         }
 
         const node = await HyNode.findByIdAndUpdate(

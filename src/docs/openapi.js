@@ -106,7 +106,7 @@ For \`virtual\` you must additionally pass a non-empty \`virtual\` object.`,
                 xray: { type: 'object', description: 'Xray-specific settings when `type=xray`.' },
                 amneziawg: { type: 'object', description: 'AmneziaWG-specific settings when `type=amneziawg`.' },
                 virtual: { $ref: '#/components/schemas/VirtualConfig' },
-                cascadeRole: { type: 'string', enum: ['standalone', 'portal', 'bridge'], default: 'standalone', description: 'Always forced to `standalone` for virtual nodes.' },
+                cascadeRole: { type: 'string', enum: ['standalone', 'portal', 'bridge'], default: 'standalone', description: 'Only Xray nodes can use cascade roles. Other node types are forced to `standalone`.' },
                 country: { type: 'string', example: 'DE' },
                 comment: { type: 'string', maxLength: 500, example: 'Hetzner FSN1 — backup node', description: 'Free-form operator note shown in panel UI.' },
                 rankingCoefficient: { type: 'number', example: 1 },
@@ -2092,7 +2092,7 @@ See the request body examples panel for both flavours.`,
 
 **Xray nodes** (\`type=xray\`): runs Xray agent setup; only \`restartService\` from the body is used.
 
-**AmneziaWG nodes** (\`type=amneziawg\`): installs \`amneziawg-go\` + \`amneziawg-tools\`, uploads \`/etc/wireguard/<interface>.conf\`, opens the UDP port, and starts \`awg-quick@<interface>\`. \`installHysteria\` is treated as the install/update flag for backward-compatible request bodies.
+**AmneziaWG nodes** (\`type=amneziawg\`): installs \`amneziawg-go\` + \`amneziawg-tools\`, uploads \`/etc/amnezia/amneziawg/<interface>.conf\` (with a compatibility symlink in \`/etc/wireguard\`), opens the UDP port, and starts \`awg-quick@<interface>\`. \`installHysteria\` is treated as the install/update flag for backward-compatible request bodies.
 
 **Virtual nodes** (\`type=virtual\`): not supported — returns **400** because virtual nodes have no remote service to provision.
 

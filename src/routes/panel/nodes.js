@@ -378,7 +378,7 @@ router.post('/nodes', async (req, res) => {
             active: req.body.active === 'on',
             useCustomConfig: req.body.useCustomConfig === 'on',
             customConfig: req.body.customConfig || '',
-            cascadeRole: req.body.cascadeRole || 'standalone',
+            cascadeRole: nodeType === 'xray' ? (req.body.cascadeRole || 'standalone') : 'standalone',
             country: req.body.country || '',
             comment: typeof req.body.comment === 'string'
                 ? req.body.comment.trim().slice(0, 500)
@@ -654,7 +654,7 @@ router.post('/nodes/:id', async (req, res) => {
                 password: req.body['obfs.password'] || '',
             },
             flag: req.body.flag || '',
-            cascadeRole: req.body.cascadeRole || 'standalone',
+            cascadeRole: nodeType === 'xray' ? (req.body.cascadeRole || 'standalone') : 'standalone',
             country: req.body.country || '',
             comment: typeof req.body.comment === 'string'
                 ? req.body.comment.trim().slice(0, 500)
@@ -820,7 +820,7 @@ router.post('/nodes/:id/setup', async (req, res) => {
         if (result.success) {
             const updateFields = { status: 'online', lastSync: new Date(), lastError: '', healthFailures: 0 };
             if (node.type === 'hysteria') updateFields.useTlsFiles = result.useTlsFiles;
-            if (node.cascadeRole === 'bridge') updateFields.status = 'offline';
+            if (node.type === 'xray' && node.cascadeRole === 'bridge') updateFields.status = 'offline';
             await HyNode.findByIdAndUpdate(req.params.id, { $set: updateFields });
             await invalidateNodesCache();
 
@@ -981,7 +981,7 @@ router.get('/nodes/:id/get-config', async (req, res) => {
         const configPath = node.type === 'xray'
             ? '/usr/local/etc/xray/config.json'
             : node.type === 'amneziawg'
-                ? `/etc/wireguard/${node.amneziawg?.interfaceName || 'awg0'}.conf`
+                ? nodeSetup.getAmneziawgConfigPath(node.amneziawg || {})
                 : (node.paths?.config || '/etc/hysteria/config.yaml');
         const result = await nodeSetup.execSSH(conn, `cat ${configPath}`);
         conn.end();

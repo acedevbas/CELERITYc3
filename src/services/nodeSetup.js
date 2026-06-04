@@ -748,6 +748,17 @@ async function getNodeLogs(node, lines = 50) {
 
 // ==================== AMNEZIAWG SETUP ====================
 
+const AMNEZIAWG_CONFIG_DIR = '/etc/amnezia/amneziawg';
+
+function getAmneziawgInterfaceName(config = {}) {
+    const raw = config?.amneziawg || config || {};
+    return amneziawgService.normalizeConfig(raw).interfaceName;
+}
+
+function getAmneziawgConfigPath(config = {}) {
+    return `${AMNEZIAWG_CONFIG_DIR}/${getAmneziawgInterfaceName(config)}.conf`;
+}
+
 const AMNEZIAWG_INSTALL_SCRIPT = `#!/bin/bash
 set -e
 
@@ -792,8 +803,8 @@ else
     echo "Done: amneziawg-go already installed"
 fi
 
-mkdir -p /etc/wireguard
-chmod 700 /etc/wireguard
+mkdir -p /etc/amnezia/amneziawg /etc/wireguard
+chmod 700 /etc/amnezia/amneziawg /etc/wireguard
 cat >/etc/sysctl.d/99-amneziawg.conf <<'SYSCTL'
 net.ipv4.ip_forward=1
 SYSCTL
@@ -809,9 +820,9 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 Environment=WG_QUICK_USERSPACE_IMPLEMENTATION=/usr/local/bin/amneziawg-go
-ExecStart=/usr/local/bin/awg-quick up %i
-ExecStop=/usr/local/bin/awg-quick down %i
-ExecReload=/bin/bash -lc '/usr/local/bin/awg syncconf %i <(/usr/local/bin/awg-quick strip %i)'
+ExecStart=/usr/local/bin/awg-quick up /etc/amnezia/amneziawg/%i.conf
+ExecStop=/usr/local/bin/awg-quick down /etc/amnezia/amneziawg/%i.conf
+ExecReload=/bin/bash -lc '/usr/local/bin/awg syncconf %i <(/usr/local/bin/awg-quick strip /etc/amnezia/amneziawg/%i.conf)'
 
 [Install]
 WantedBy=multi-user.target
@@ -851,12 +862,14 @@ async function setupAmneziawgNode(node, options = {}) {
         const cfg = amneziawgService.normalizeConfig(node.amneziawg || {});
         const interfaceName = cfg.interfaceName;
         const listenPort = node.port || 51820;
-        const configPath = `/etc/wireguard/${interfaceName}.conf`;
+        const configPath = getAmneziawgConfigPath(cfg);
+        const legacyConfigPath = `/etc/wireguard/${interfaceName}.conf`;
         const serverConfig = configGenerator.generateAmneziawgServerConfig(node, users);
 
-        await execSSH(conn, 'mkdir -p /etc/wireguard && chmod 700 /etc/wireguard');
+        await execSSH(conn, 'mkdir -p /etc/amnezia/amneziawg /etc/wireguard && chmod 700 /etc/amnezia/amneziawg /etc/wireguard');
         await uploadFile(conn, serverConfig, configPath);
         await execSSH(conn, `chmod 600 ${configPath}`);
+        await execSSH(conn, `ln -sf ${configPath} ${legacyConfigPath}`);
         log(`Config uploaded to ${configPath}`);
         logs.push('--- Config content ---');
         logs.push(serverConfig.replace(/PrivateKey = .+/g, 'PrivateKey = ***').replace(/PresharedKey = .+/g, 'PresharedKey = ***'));
@@ -881,8 +894,13 @@ echo "Done: UDP port ${listenPort} opened"
 systemctl enable awg-quick@${interfaceName}
 systemctl restart awg-quick@${interfaceName}
 sleep 2
-systemctl status awg-quick@${interfaceName} --no-pager -l || true
-awg show ${interfaceName} || true
+if ! systemctl is-active --quiet awg-quick@${interfaceName}; then
+    systemctl status awg-quick@${interfaceName} --no-pager -l || true
+    journalctl -u awg-quick@${interfaceName} -n 80 --no-pager || true
+    exit 1
+fi
+systemctl status awg-quick@${interfaceName} --no-pager -l
+awg show ${interfaceName}
             `);
             logs.push(restartResult.output);
             if (!restartResult.success) {
@@ -1831,6 +1849,7 @@ module.exports = {
     connectSSH,
     execSSH,
     uploadFile,
+    getAmneziawgConfigPath,
     setupAmneziawgNode,
     checkAmneziawgNodeStatus,
     getAmneziawgNodeLogs,

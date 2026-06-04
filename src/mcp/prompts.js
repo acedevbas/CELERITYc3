@@ -143,7 +143,7 @@ Run these diagnostic checks in order using execute_ssh (confirm each command wit
    \`journalctl -u hysteria-server -n 50 --no-pager 2>/dev/null || journalctl -u xray -n 50 --no-pager 2>/dev/null || journalctl -u 'awg-quick@*' -n 50 --no-pager\`
 
 4. **Config file existence**
-   \`ls -la /etc/hysteria/ 2>/dev/null || ls -la /usr/local/etc/xray/ 2>/dev/null || ls -la /etc/wireguard/\`
+   \`ls -la /etc/hysteria/ 2>/dev/null || ls -la /usr/local/etc/xray/ 2>/dev/null || ls -la /etc/amnezia/amneziawg/ 2>/dev/null || ls -la /etc/wireguard/\`
 
 5. **Port listening check**
    \`ss -tlunp | grep -E '443|8443|9999'\`

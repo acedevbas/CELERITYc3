@@ -341,7 +341,7 @@ async function manageNode(args, emit) {
                 type: nodeType,
                 domain: data.domain || '',
                 sni: data.sni || '',
-                port: data.port || 443,
+                port: data.port || (nodeType === 'amneziawg' ? 51820 : 443),
                 portRange: data.portRange || '20000-50000',
                 statsPort: 9999,
                 statsSecret,
@@ -349,7 +349,7 @@ async function manageNode(args, emit) {
                 ssh: resolvedSsh,
                 active: true,
                 status: 'offline',
-                cascadeRole: nodeType === 'virtual' ? 'standalone' : (data.cascadeRole || 'standalone'),
+                cascadeRole: nodeType === 'xray' ? (data.cascadeRole || 'standalone') : 'standalone',
                 country: data.country || '',
             };
             if (data.initScript !== undefined) nodeData.initScript = data.initScript;
@@ -430,11 +430,19 @@ async function manageNode(args, emit) {
                 return { error: `Node type ${nextType} requires ip`, code: 400 };
             }
 
+            if (nextType !== 'xray') {
+                updates.cascadeRole = 'standalone';
+            }
+
             if (nextType === 'amneziawg' && updates.amneziawg) {
-                updates.amneziawg = { ...(existing.amneziawg || {}), ...updates.amneziawg };
-                const keys = amneziawgService.ensureNodeKeys({ amneziawg: updates.amneziawg });
-                updates.amneziawg.privateKey = keys.privateKey;
-                updates.amneziawg.publicKey = keys.publicKey;
+                const mergedAmneziawg = { ...(existing.amneziawg || {}), ...updates.amneziawg };
+                const keys = amneziawgService.ensureNodeKeys({ amneziawg: mergedAmneziawg });
+                mergedAmneziawg.privateKey = keys.privateKey;
+                mergedAmneziawg.publicKey = keys.publicKey;
+                delete updates.amneziawg;
+                for (const [key, value] of Object.entries(mergedAmneziawg)) {
+                    updates[`amneziawg.${key}`] = value;
+                }
             }
 
             const node = await HyNode.findByIdAndUpdate(id, { $set: updates }, { new: true })

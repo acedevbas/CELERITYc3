@@ -807,7 +807,7 @@ class SyncService {
      *
      * Silently skipped when:
      *  - `updates` contains only cosmetic fields (see CONFIG_AFFECTING_FIELDS);
-     *  - node is inactive or acts as a cascade bridge (cascade deploy owns those);
+     *  - node is inactive or acts as an Xray cascade bridge (cascade deploy owns those);
      *  - node has neither SSH credentials nor an agent token (never set up yet).
      *
      * @param {string} nodeId  - Node _id
@@ -820,7 +820,7 @@ class SyncService {
             try {
                 const node = await HyNode.findById(nodeId).select('+xray.manualKey +amneziawg.privateKey');
                 if (!node || !node.active) return;
-                if (node.cascadeRole === 'bridge') return;
+                if (node.type === 'xray' && node.cascadeRole === 'bridge') return;
 
                 const hasSsh = !!(node.ssh?.password || node.ssh?.privateKey);
                 const hasAgent = !!(node.xray && node.xray.agentToken);
@@ -852,11 +852,14 @@ class SyncService {
             });
 
             const configContent = configGenerator.generateAmneziawgServerConfig(node, users);
-            const configPath = `/etc/wireguard/${cfg.interfaceName}.conf`;
+            const configPath = nodeSetup.getAmneziawgConfigPath(cfg);
+            const legacyConfigPath = `/etc/wireguard/${cfg.interfaceName}.conf`;
 
             await ssh.connect();
+            await ssh.exec('mkdir -p /etc/amnezia/amneziawg /etc/wireguard && chmod 700 /etc/amnezia/amneziawg /etc/wireguard');
             await ssh.uploadContent(configContent, configPath);
             await ssh.exec(`chmod 600 ${configPath}`);
+            await ssh.exec(`ln -sf ${configPath} ${legacyConfigPath}`);
 
             let reload = await ssh.exec(`systemctl reload awg-quick@${cfg.interfaceName}`);
             if (reload.code !== 0) {

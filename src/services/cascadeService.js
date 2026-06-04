@@ -995,7 +995,7 @@ class CascadeService {
         const portalSet = new Set(links.map(l => String(l.portalNode)));
         const bridgeSet = new Set(links.map(l => String(l.bridgeNode)));
 
-        const allNodes = await HyNode.find({ active: true, type: { $ne: 'virtual' } }).select('_id cascadeRole').lean();
+        const allNodes = await HyNode.find({ active: true, type: 'xray' }).select('_id cascadeRole').lean();
 
         const bulkOps = [];
         for (const node of allNodes) {
@@ -1021,6 +1021,11 @@ class CascadeService {
         if (bulkOps.length > 0) {
             await HyNode.bulkWrite(bulkOps, { ordered: false });
         }
+
+        await HyNode.updateMany(
+            { type: { $ne: 'xray' }, cascadeRole: { $ne: 'standalone' } },
+            { $set: { cascadeRole: 'standalone' } }
+        );
     }
 
     async _invalidateTopologyCache() {

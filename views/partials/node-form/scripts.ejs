@@ -538,10 +538,12 @@ function switchProto(proto) {
     const hysteriaOnlyEls = document.querySelectorAll('.hysteria-only');
     const ipFormGroup = document.getElementById('ipFormGroup');
     const ipInput = document.getElementById('ip');
+    const cascadeRoleInput = document.getElementById('cascadeRole');
 
     [labelHysteria, labelXray, labelAmneziawg, labelVirtual].forEach(l => l && l.classList.remove('active'));
 
     if (proto === 'virtual') {
+        if (cascadeRoleInput) cascadeRoleInput.value = 'standalone';
         if (xraySection) xraySection.style.display = 'none';
         if (amneziawgSection) amneziawgSection.style.display = 'none';
         if (cascadeSection) cascadeSection.style.display = 'none';
@@ -590,6 +592,7 @@ function switchProto(proto) {
         // depends on the current Xray TLS source — defer to updateXrayTlsSourceUI.
         updateXrayTlsSourceUI();
     } else if (proto === 'amneziawg') {
+        if (cascadeRoleInput) cascadeRoleInput.value = 'standalone';
         if (xraySection) xraySection.style.display = 'none';
         if (amneziawgSection) amneziawgSection.style.display = '';
         if (cascadeSection) cascadeSection.style.display = 'none';
@@ -606,6 +609,7 @@ function switchProto(proto) {
             portInput.value = '51820';
         }
     } else {
+        if (cascadeRoleInput) cascadeRoleInput.value = 'standalone';
         if (xraySection) xraySection.style.display = 'none';
         if (amneziawgSection) amneziawgSection.style.display = 'none';
         if (cascadeSection) cascadeSection.style.display = 'none';

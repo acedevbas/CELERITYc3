@@ -254,7 +254,7 @@
     "autoSetup": "Настроить автоматически",
     "autoSetupConfirm": "Настроить ноду автоматически через SSH?\n\nЭто:\n• Установит Hysteria (если не установлена)\n• Сгенерирует сертификат\n• Загрузит конфигурацию\n• Настроит port hopping\n• Перезапустит сервис",
     "autoSetupConfirmXray": "Настроить ноду автоматически через SSH?\n\nЭто:\n• Установит Xray-core (последняя версия)\n• Сгенерирует Reality ключи (если нужны)\n• Установит CC Agent (управление без SSH)\n• Настроит файрвол\n• Запустит сервисы",
-    "autoSetupConfirmAmneziawg": "Настроить AmneziaWG-ноду автоматически через SSH?\n\nЭто:\n• Установит amneziawg-go и amneziawg-tools\n• Сгенерирует ключи сервера и peer-ключи при необходимости\n• Загрузит конфиг в /etc/wireguard\n• Включит IPv4 forwarding и NAT\n• Откроет UDP-порт и перезапустит awg-quick",
+    "autoSetupConfirmAmneziawg": "Настроить AmneziaWG-ноду автоматически через SSH?\n\nЭто:\n• Установит amneziawg-go и amneziawg-tools\n• Сгенерирует ключи сервера и peer-ключи при необходимости\n• Загрузит конфиг в /etc/amnezia/amneziawg\n• Включит IPv4 forwarding и NAT\n• Откроет UDP-порт и перезапустит awg-quick",
     "setupRunning": "Выполняется настройка... Это может занять 1-2 минуты.",
     "terminal": "SSH Терминал",
     "broadcastTerminal": "Broadcast",

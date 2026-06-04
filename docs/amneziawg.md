@@ -10,16 +10,17 @@ Auto setup installs:
 - `amneziawg-go` from the official `amnezia-vpn/amneziawg-go` GitHub source.
 - `awg` and `awg-quick` from the official `amnezia-vpn/amneziawg-tools` release.
 - A systemd unit `awg-quick@.service`.
-- `/etc/wireguard/<interface>.conf`, defaulting to `/etc/wireguard/awg0.conf`.
+- `/etc/amnezia/amneziawg/<interface>.conf`, defaulting to `/etc/amnezia/amneziawg/awg0.conf`.
+  A compatibility symlink is kept at `/etc/wireguard/<interface>.conf`.
 - IPv4 forwarding plus awg-quick `PostUp`/`PreDown` NAT rules for the client pool.
 
 The service runs with:
 
 ```ini
 Environment=WG_QUICK_USERSPACE_IMPLEMENTATION=/usr/local/bin/amneziawg-go
-ExecStart=/usr/local/bin/awg-quick up %i
-ExecStop=/usr/local/bin/awg-quick down %i
-ExecReload=/bin/bash -lc '/usr/local/bin/awg syncconf %i <(/usr/local/bin/awg-quick strip %i)'
+ExecStart=/usr/local/bin/awg-quick up /etc/amnezia/amneziawg/%i.conf
+ExecStop=/usr/local/bin/awg-quick down /etc/amnezia/amneziawg/%i.conf
+ExecReload=/bin/bash -lc '/usr/local/bin/awg syncconf %i <(/usr/local/bin/awg-quick strip /etc/amnezia/amneziawg/%i.conf)'
 ```
 
 ## Config Model
