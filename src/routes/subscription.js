@@ -25,7 +25,7 @@ const hwidDeviceService = require('../services/hwidDeviceService');
 const webhookService = require('../services/webhookService');
 const amneziawgService = require('../services/amneziawgService');
 
-const SUBSCRIPTION_CACHE_VERSION = 'awg-sub-v2';
+const SUBSCRIPTION_CACHE_VERSION = 'awg-sub-v3';
 
 const CUSTOM_GEOSITE_RULESETS = {
     // ITDog keeps this list updated for Russian resources available only
@@ -82,30 +82,6 @@ function qtCompressJson(value) {
 
 function amneziaVpnKeyFromConfig(config) {
     return `vpn://${base64Url(qtCompressJson(config))}`;
-}
-
-function amneziaQrPayloadsFromVpnKey(vpnKey) {
-    const payload = String(vpnKey || '').replace(/^vpn:\/\//i, '');
-    const data = Buffer.from(payload, 'utf8');
-    const chunkSize = 850;
-    const chunkCount = Math.max(1, Math.ceil(data.length / chunkSize));
-    if (chunkCount > 255) {
-        throw new Error(`Amnezia VPN key is too large for QR series (${chunkCount} chunks)`);
-    }
-
-    const chunks = [];
-    for (let i = 0; i < chunkCount; i++) {
-        const part = data.subarray(i * chunkSize, Math.min((i + 1) * chunkSize, data.length));
-        const packet = Buffer.alloc(2 + 1 + 1 + 4 + part.length);
-        let offset = 0;
-        packet.writeInt16BE(1984, offset); offset += 2;
-        packet.writeUInt8(chunkCount, offset); offset += 1;
-        packet.writeUInt8(i, offset); offset += 1;
-        packet.writeUInt32BE(part.length, offset); offset += 4;
-        part.copy(packet, offset);
-        chunks.push(base64Url(packet));
-    }
-    return chunks;
 }
 
 function isBrowser(req) {
@@ -392,6 +368,66 @@ function generateURI(user, node, config) {
     const name = `${node.flag || ''} ${node.name} ${config.name}`.trim();
     const uri = `hysteria2://${auth}@${config.host}:${config.port}?${params.join('&')}#${encodeURIComponent(name)}`;
     return uri;
+}
+
+function _buildAmneziawgUriContext(user, node) {
+    const cfg = amneziawgService.normalizeConfig({
+        ...((node.amneziawg && typeof node.amneziawg.toObject === 'function')
+            ? node.amneziawg.toObject({ getters: false, virtuals: false })
+            : (node.amneziawg || {})),
+        listenPort: node.port || 51820,
+    });
+    const peer = user.amneziawg || {};
+    if (!peer.privateKey || !peer.address || !cfg.publicKey) return null;
+    return {
+        cfg,
+        peer,
+        host: cfg.endpointHost || node.domain || node.ip,
+        port: node.port || 51820,
+        name: `${node.flag || ''} ${node.name || 'AmneziaWG'} AWG2`.trim(),
+    };
+}
+
+function _appendUriParam(params, key, value) {
+    if (value !== undefined && value !== null && String(value) !== '') {
+        params.push(`${key}=${encodeURIComponent(String(value))}`);
+    }
+}
+
+function generateWireGuardURI(user, node) {
+    const ctx = _buildAmneziawgUriContext(user, node);
+    if (!ctx) return '';
+    const { cfg, peer, host, port, name } = ctx;
+    const params = [];
+    _appendUriParam(params, 'publickey', cfg.publicKey);
+    _appendUriParam(params, 'address', peer.address);
+    _appendUriParam(params, 'allowedips', cfg.allowedIPs.join(','));
+    if (peer.presharedKey) _appendUriParam(params, 'presharedkey', peer.presharedKey);
+    if (cfg.dns?.length) _appendUriParam(params, 'dns', cfg.dns.join(','));
+    if (cfg.mtu) _appendUriParam(params, 'mtu', cfg.mtu);
+    if (cfg.persistentKeepalive > 0) _appendUriParam(params, 'persistentkeepalive', cfg.persistentKeepalive);
+    return `wireguard://${encodeURIComponent(peer.privateKey)}@${host}:${port}/?${params.join('&')}#${encodeURIComponent(name)}`;
+}
+
+function generateAmneziawgURI(user, node) {
+    const ctx = _buildAmneziawgUriContext(user, node);
+    if (!ctx) return '';
+    const { cfg, peer, host, port, name } = ctx;
+    const params = [];
+    _appendUriParam(params, 'peerpublickey', cfg.publicKey);
+    _appendUriParam(params, 'address', peer.address);
+    _appendUriParam(params, 'allowedips', cfg.allowedIPs.join(','));
+    if (peer.presharedKey) _appendUriParam(params, 'presharedkey', peer.presharedKey);
+    if (cfg.dns?.length) _appendUriParam(params, 'dns', cfg.dns.join(','));
+    if (cfg.mtu) _appendUriParam(params, 'mtu', cfg.mtu);
+    if (cfg.persistentKeepalive > 0) _appendUriParam(params, 'persistentkeepalive', cfg.persistentKeepalive);
+    [
+        ['jc', cfg.jc], ['jmin', cfg.jmin], ['jmax', cfg.jmax],
+        ['s1', cfg.s1], ['s2', cfg.s2], ['s3', cfg.s3], ['s4', cfg.s4],
+        ['h1', cfg.h1], ['h2', cfg.h2], ['h3', cfg.h3], ['h4', cfg.h4],
+        ['i1', cfg.i1], ['i2', cfg.i2], ['i3', cfg.i3], ['i4', cfg.i4], ['i5', cfg.i5],
+    ].forEach(([key, value]) => _appendUriParam(params, key, value));
+    return `awg://${encodeURIComponent(peer.privateKey)}@${host}:${port}/?${params.join('&')}#${encodeURIComponent(name)}`;
 }
 
 /**
@@ -993,6 +1029,11 @@ function generateURIList(user, nodes, options = {}) {
         }
         if (node.type === 'xray') {
             generateVlessURIs(user, node, xrayUriOptions).forEach(uri => uris.push(uri));
+        } else if (node.type === 'amneziawg') {
+            const awgUri = generateAmneziawgURI(user, node);
+            const wgUri = generateWireGuardURI(user, node);
+            if (awgUri) uris.push(awgUri);
+            if (wgUri) uris.push(wgUri);
         } else {
             getNodeConfigs(node).forEach(cfg => {
                 uris.push(generateURI(user, node, cfg));
@@ -1989,32 +2030,27 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         cfg.vpnKey = amneziaVpnKeyFromConfig(cfg.amneziaNativeConfig);
         cfg.vpnKeyB64 = base64Utf8(cfg.vpnKey);
         cfg.filename = `${String(cfg.location || 'amneziawg').replace(/[^A-Za-z0-9._-]+/g, '-') || 'amneziawg'}.conf`;
-        const keyHash = crypto
+        const confHash = crypto
             .createHash('sha256')
-            .update(cfg.vpnKey)
+            .update(cfg.uri)
             .digest('hex')
             .slice(0, 16);
-        cfg.qrDataUrls = [];
-        for (const [index, payload] of amneziaQrPayloadsFromVpnKey(cfg.vpnKey).entries()) {
-            cfg.qrDataUrls.push(await buildQrDataUrl(payload, `awg-vpn-key-v1:${keyHash}:${index}`, {
-                width: 420,
-                margin: 1,
-                errorCorrectionLevel: 'L',
-                color: { dark: '#000000', light: '#ffffff' },
-            }));
-        }
-        cfg.qrDataUrls = cfg.qrDataUrls.filter(Boolean);
+        cfg.qrDataUrl = await buildQrDataUrl(cfg.uri, `awg-conf-v4:${confHash}`, {
+            width: 520,
+            margin: 1,
+            errorCorrectionLevel: 'L',
+            color: { dark: '#000000', light: '#ffffff' },
+        });
     }
 
-    const amneziaQrSectionHtml = amneziaQrConfigs.some(cfg => cfg.qrDataUrls?.length)
+    const amneziaQrSectionHtml = amneziaQrConfigs.some(cfg => cfg.qrDataUrl)
         ? `<div class="section section-center qr-section">
             <h2><i class="ti ti-shield-lock"></i> AMNEZIAWG QR</h2>
             <div class="awg-qr-grid">
-                ${amneziaQrConfigs.filter(cfg => cfg.qrDataUrls?.length).map(cfg => `
+                ${amneziaQrConfigs.filter(cfg => cfg.qrDataUrl).map(cfg => `
                 <div class="awg-qr-card">
                     <div class="awg-qr-title">${escHtml(cfg.location)}</div>
-                    <img src="${cfg.qrDataUrls[0]}" alt="AmneziaWG QR" class="qr-image qr-image-standard qr-image-awg" data-qr-series="${escAttr(JSON.stringify(cfg.qrDataUrls))}">
-                    <div class="awg-qr-progress"${cfg.qrDataUrls.length > 1 ? '' : ' hidden'}>QR 1/${cfg.qrDataUrls.length}</div>
+                    <img src="${cfg.qrDataUrl}" alt="AmneziaWG QR" class="qr-image qr-image-standard qr-image-awg">
                     <div class="awg-qr-actions">
                         <button class="copy-btn" data-copy-b64="${escAttr(cfg.vpnKeyB64)}" onclick="copyDataText(this)"><i class="ti ti-copy"></i> Копировать ключ</button>
                         <button class="copy-btn copy-btn-secondary" data-copy-b64="${escAttr(cfg.confB64)}" onclick="copyDataText(this)"><i class="ti ti-file-text"></i> Копировать .conf</button>
@@ -2023,7 +2059,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                 </div>
                 `).join('')}
             </div>
-            <div class="qr-hint">QR содержит Amnezia VPN key; при нескольких частях они переключаются как в Amnezia Client.</div>
+            <div class="qr-hint">QR содержит один .conf для AmneziaWG/WireGuard-импорта.</div>
            </div>`
         : '';
 
@@ -2434,16 +2470,6 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             font-weight: 600;
             color: var(--text);
         }
-        .awg-qr-progress {
-            min-height: 18px;
-            padding: 2px 8px;
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.08);
-            color: var(--text-muted);
-            font-size: 11px;
-            font-weight: 600;
-        }
-        .awg-qr-progress[hidden] { display: none; }
         .awg-qr-actions {
             display: flex;
             flex-wrap: wrap;
@@ -2614,21 +2640,6 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             success(btn);
         }
 
-        function setupAwgQrRotation() {
-            document.querySelectorAll('img[data-qr-series]').forEach(img => {
-                let series = [];
-                try { series = JSON.parse(img.dataset.qrSeries || '[]'); } catch (e) {}
-                if (!Array.isArray(series) || series.length <= 1) return;
-                const progress = img.closest('.awg-qr-card')?.querySelector('.awg-qr-progress');
-                let index = 0;
-                setInterval(() => {
-                    index = (index + 1) % series.length;
-                    img.src = series[index];
-                    if (progress) progress.textContent = 'QR ' + (index + 1) + '/' + series.length;
-                }, 1000);
-            });
-        }
-
         function copyUri(btn) {
             const allBtns = document.querySelectorAll('.location-configs .copy-btn');
             let idx = 0;
@@ -2669,7 +2680,6 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             }, 1600);
         }
 
-        setupAwgQrRotation();
     </script>
 </body>
 </html>`;

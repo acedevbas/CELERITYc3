@@ -50,8 +50,14 @@ User peer material lives in `HyUser.amneziawg`:
 
 ## Subscriptions
 
-AmneziaWG is not emitted into plain URI lists because there is no broadly
-compatible `amneziawg://` URI standard.
+Plain URI subscriptions emit AmneziaWG nodes as URI lines:
+
+- `awg://...` with AWG2 parameters (`jc`, `jmin`, `jmax`, `s1`-`s4`,
+  `h1`-`h4`, `i1`-`i5`) for clients that support AmneziaWG URIs.
+- `wireguard://...` as a compatibility fallback for clients that can import
+  WireGuard-style subscription lines. This fallback exposes the same keys and
+  endpoint, but clients that do not understand AWG obfuscation may not be able
+  to connect to an AWG2 server.
 
 Mihomo/Clash subscriptions do include AmneziaWG nodes as `type: wireguard`
 proxies with `amnezia-wg-option` (`jc`, `jmin`, `jmax`, `s1`-`s4`,
@@ -84,12 +90,9 @@ This returns an Amnezia `vpn://` key for the same AWG2 config. The aliases
 auto-selected when the request user-agent contains `Amnezia`.
 
 The browser subscription page also renders per-node AmneziaWG cards. The QR
-payload is an Amnezia VPN key QR series, matching
-`SubscriptionUiController::prepareVpnKeyExport()`: the `vpn://` prefix is
-removed before QR generation, and payloads larger than 850 bytes are split into
-the same `magic=1984` QR chunks that Amnezia Client scans. The card also
-exposes copy/download actions for the raw `.conf` file used by
-AmneziaWG-compatible clients.
+payload is a single raw `.conf` file for AmneziaWG/WireGuard import. The card
+also exposes copy/download actions for the same `.conf` and a copy action for
+the Amnezia `vpn://` key.
 
 The default client route is IPv4 full-tunnel (`0.0.0.0/0`). Add IPv6 routes only
 when the server interface and forwarding are explicitly configured for IPv6.
