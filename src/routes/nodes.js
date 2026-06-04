@@ -11,6 +11,7 @@ const cryptoService = require('../services/cryptoService');
 const logger = require('../utils/logger');
 const { requireScope } = require('../middleware/auth');
 const { invalidateNodesCache } = require('../utils/helpers');
+const { findUdpPortConflict } = require('../utils/nodePortConflicts');
 const amneziawgService = require('../services/amneziawgService');
 
 /**
@@ -104,6 +105,7 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
         }
 
         const nodeType = type || 'hysteria';
+        const defaultPort = nodeType === 'amneziawg' ? 51820 : 443;
 
         if (nodeType !== 'virtual' && !ip) {
             return res.status(400).json({ error: 'ip is required for real protocol nodes' });
@@ -131,6 +133,15 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
             if (existing) {
                 return res.status(409).json({ error: `A ${nodeType} node with this IP already exists` });
             }
+            const udpConflict = await findUdpPortConflict(HyNode, {
+                ip,
+                type: nodeType,
+                port: port || defaultPort,
+                portRange: portRange || '20000-50000',
+            });
+            if (udpConflict) {
+                return res.status(409).json({ error: udpConflict.message });
+            }
         }
 
         const statsSecret = cryptoService.generateNodeSecret();
@@ -154,7 +165,7 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
             type: nodeType,
             domain: domain || '',
             sni: sni || '',
-            port: port || 443,
+            port: port || defaultPort,
             portRange: portRange || '20000-50000',
             statsPort: statsPort || 9999,
             statsSecret,
@@ -255,7 +266,7 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
         // findByIdAndUpdate bypasses pre('validate') hooks even with runValidators,
         // so enforce type-specific invariants explicitly here. We need the existing
         // doc to know the resulting type when only one of {type,virtual} is sent.
-        const existing = await HyNode.findById(req.params.id).select('type ip virtual amneziawg +amneziawg.privateKey').lean();
+        const existing = await HyNode.findById(req.params.id).select('type ip port portRange virtual amneziawg +amneziawg.privateKey').lean();
         if (!existing) {
             return res.status(404).json({ error: 'Node not found' });
         }
@@ -275,6 +286,18 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
             updates.ip = null;
         } else if (!nextIp) {
             return res.status(400).json({ error: `Node type ${nextType} requires ip` });
+        }
+
+        if (nextType !== 'virtual') {
+            const udpConflict = await findUdpPortConflict(HyNode, {
+                ip: nextIp,
+                type: nextType,
+                port: updates.port !== undefined ? updates.port : existing.port,
+                portRange: updates.portRange !== undefined ? updates.portRange : existing.portRange,
+            }, { excludeId: req.params.id });
+            if (udpConflict) {
+                return res.status(409).json({ error: udpConflict.message });
+            }
         }
 
         if (nextType === 'amneziawg' && updates.amneziawg) {
@@ -691,16 +714,18 @@ router.post('/:id/generate-xray-keys', requireScope('nodes:write'), async (req, 
 /**
  * POST /nodes/:id/setup - Auto-setup node via SSH
  *
- * Installs Hysteria, generates certs, configures port hopping, opens firewall ports
- * and starts the service — same as the one-click setup in the web panel.
+ * Installs and configures the selected node protocol — same as the one-click
+ * setup in the web panel.
  *
  * This is a long-running operation (30s–2min). The response is returned only after
  * all steps complete. Set your HTTP client timeout accordingly (e.g. 3–5 minutes).
  *
  * Body (all optional, all default to true):
- *   installHysteria  {boolean}  Install/update Hysteria binary
- *   setupPortHopping {boolean}  Configure iptables NAT rules for port range
- *   restartService   {boolean}  Enable and restart hysteria-server systemd unit
+ *   installHysteria  {boolean}  Backward-compatible install flag. For Hysteria
+ *                               it installs/updates Hysteria; for AmneziaWG it
+ *                               installs/updates amneziawg-go + tools.
+ *   setupPortHopping {boolean}  Hysteria only: configure iptables NAT port range.
+ *   restartService   {boolean}  Enable/restart the protocol service.
  *
  * Returns:
  *   200 { success: true,  logs: string[] }

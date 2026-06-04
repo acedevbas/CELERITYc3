@@ -254,6 +254,7 @@
     "autoSetup": "Setup Automatically",
     "autoSetupConfirm": "Setup node automatically via SSH?\n\nThis will:\n• Install Hysteria (if not installed)\n• Generate certificate\n• Upload configuration\n• Setup port hopping\n• Restart service",
     "autoSetupConfirmXray": "Setup node automatically via SSH?\n\nThis will:\n• Install Xray-core (latest version)\n• Generate Reality keys (if needed)\n• Install CC Agent (no-SSH management)\n• Configure firewall\n• Start services",
+    "autoSetupConfirmAmneziawg": "Setup AmneziaWG node automatically via SSH?\n\nThis will:\n• Install amneziawg-go and amneziawg-tools\n• Generate server and peer keys if needed\n• Upload /etc/wireguard config\n• Enable IPv4 forwarding and NAT\n• Open the UDP port and restart awg-quick",
     "setupRunning": "Setup in progress... This may take 1-2 minutes.",
     "terminal": "SSH Terminal",
     "broadcastTerminal": "Broadcast",

@@ -17,6 +17,7 @@ const cascadeService = require('../../services/cascadeService');
 const statsService = require('../../services/statsService');
 const uaStatsService = require('../../services/uaStatsService');
 const { getActiveGroups, invalidateNodesCache } = require('../../utils/helpers');
+const { findUdpPortConflict } = require('../../utils/nodePortConflicts');
 const config = require('../../../config');
 const logger = require('../../utils/logger');
 
@@ -299,6 +300,7 @@ router.post('/nodes', async (req, res) => {
         const { name } = req.body;
         const nodeType = ['xray', 'amneziawg', 'virtual'].includes(req.body.type) ? req.body.type : 'hysteria';
         const ip = req.body.ip || '';
+        const defaultPort = nodeType === 'amneziawg' ? 51820 : 443;
 
         if (!name) {
             return res.redirect(`/panel/nodes/add?error=${encodeURIComponent('Name is required')}`);
@@ -312,6 +314,15 @@ router.post('/nodes', async (req, res) => {
             const existing = await HyNode.findOne({ ip, type: nodeType });
             if (existing) {
                 return res.redirect(`/panel/nodes/add?error=${encodeURIComponent(`A ${nodeType} node with this IP already exists`)}`);
+            }
+            const udpConflict = await findUdpPortConflict(HyNode, {
+                ip,
+                type: nodeType,
+                port: parseInt(req.body.port, 10) || defaultPort,
+                portRange: req.body.portRange || '20000-50000',
+            });
+            if (udpConflict) {
+                return res.redirect(`/panel/nodes/add?error=${encodeURIComponent(udpConflict.message)}`);
             }
         }
 
@@ -357,7 +368,7 @@ router.post('/nodes', async (req, res) => {
             domain: req.body.domain || '',
             sni: req.body.sni || '',
             flag: req.body.flag || '',
-            port: parseInt(req.body.port) || 443,
+            port: parseInt(req.body.port) || defaultPort,
             portRange: req.body.portRange || '20000-50000',
             statsPort: parseInt(req.body.statsPort) || 9999,
             statsSecret,
@@ -598,12 +609,24 @@ router.post('/nodes/:id', async (req, res) => {
         const { name } = req.body;
         const nodeType = ['xray', 'amneziawg', 'virtual'].includes(req.body.type) ? req.body.type : 'hysteria';
         const ip = req.body.ip || '';
+        const defaultPort = nodeType === 'amneziawg' ? 51820 : 443;
 
         if (!name) {
             return res.redirect(`/panel/nodes/${nodeId}?error=${encodeURIComponent('Name is required')}`);
         }
         if (nodeType !== 'virtual' && !ip) {
             return res.redirect(`/panel/nodes/${nodeId}?error=${encodeURIComponent('IP address is required')}`);
+        }
+        if (nodeType !== 'virtual') {
+            const udpConflict = await findUdpPortConflict(HyNode, {
+                ip,
+                type: nodeType,
+                port: parseInt(req.body.port, 10) || existingNode.port || defaultPort,
+                portRange: req.body.portRange || existingNode.portRange || '20000-50000',
+            }, { excludeId: nodeId });
+            if (udpConflict) {
+                return res.redirect(`/panel/nodes/${nodeId}?error=${encodeURIComponent(udpConflict.message)}`);
+            }
         }
 
         let groups = [];
@@ -617,7 +640,7 @@ router.post('/nodes/:id', async (req, res) => {
             type: nodeType,
             domain: req.body.domain || '',
             sni: req.body.sni || '',
-            port: parseInt(req.body.port) || 443,
+            port: parseInt(req.body.port) || defaultPort,
             portRange: req.body.portRange || '20000-50000',
             statsPort: parseInt(req.body.statsPort) || 9999,
             groups,

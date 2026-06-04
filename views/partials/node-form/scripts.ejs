@@ -445,6 +445,7 @@ const lastInitScript = <%- JSON.stringify(lastInitScript || '').replace(/</g, '\
 const i18n = {
     autoSetupConfirm: <%- JSON.stringify(t("nodes.autoSetupConfirm")) %>,
     autoSetupConfirmXray: <%- JSON.stringify(t("nodes.autoSetupConfirmXray")) %>,
+    autoSetupConfirmAmneziawg: <%- JSON.stringify(t("nodes.autoSetupConfirmAmneziawg")) %>,
     setupRunning: <%- JSON.stringify(t("nodes.setupRunning")) %>,
     loadingLogs: <%- JSON.stringify(t("nodes.loadingLogs")) %>,
     checking: <%- JSON.stringify(t("nodes.checking")) %>,
@@ -600,6 +601,10 @@ function switchProto(proto) {
         const domainHintXr = document.getElementById('domainHintXrayManual');
         if (domainHintHy) domainHintHy.style.display = 'none';
         if (domainHintXr) domainHintXr.style.display = 'none';
+        const portInput = document.getElementById('port');
+        if (portInput && (!portInput.value || portInput.value === '443')) {
+            portInput.value = '51820';
+        }
     } else {
         if (xraySection) xraySection.style.display = 'none';
         if (amneziawgSection) amneziawgSection.style.display = 'none';
@@ -1243,7 +1248,11 @@ function clearLogs() {
 }
 
 async function setupNode() {
-    const confirmMsg = nodeType === 'xray' ? i18n.autoSetupConfirmXray : i18n.autoSetupConfirm;
+    const confirmMsg = nodeType === 'xray'
+        ? i18n.autoSetupConfirmXray
+        : nodeType === 'amneziawg'
+            ? i18n.autoSetupConfirmAmneziawg
+            : i18n.autoSetupConfirm;
     if (!confirm(confirmMsg)) return;
     const btn = document.getElementById('btnSetup');
     btn.disabled = true;
