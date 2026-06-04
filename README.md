@@ -350,7 +350,9 @@ plus `amneziawg-tools`. Same IP can host AmneziaWG alongside Hysteria/Xray as
 long as each real protocol uses its own port. See [AmneziaWG support](docs/amneziawg.md).
 
 Subscriptions for this protocol are served as `.conf` configs via
-`/api/files/<token>?format=amneziawg`. The browser subscription page also shows
+`/api/files/<token>?format=amneziawg` and as Amnezia VPN `vpn://` keys via
+`/api/files/<token>?format=amnezia` (also auto-selected for Amnezia user agents).
+The browser subscription page also shows
 per-node AmneziaWG cards: QR codes include an Amnezia-native chunked AWG2 payload
 for Amnezia VPN plus a plain `.conf` QR fallback, and copy/download buttons expose
 the same `.conf` directly.

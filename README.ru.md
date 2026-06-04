@@ -363,7 +363,9 @@ WireGuard-подобный VPN-протокол с полями обфускац
 AmneziaWG, если у каждого реального протокола свой порт.
 
 Подписки для AmneziaWG выдаются как `.conf` config:
-`/api/files/<token>?format=amneziawg`. На HTML-странице подписки также
+`/api/files/<token>?format=amneziawg`, а для Amnezia VPN как `vpn://` key:
+`/api/files/<token>?format=amnezia` (также выбирается автоматически по
+Amnezia user-agent). На HTML-странице подписки также
 показываются карточки по каждой AmneziaWG-ноде: QR содержит Amnezia-native
 chunked AWG2 payload для Amnezia VPN и запасной QR с обычным `.conf`, а кнопки
 копирования/скачивания отдают этот конфиг напрямую.

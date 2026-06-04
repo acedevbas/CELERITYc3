@@ -50,6 +50,8 @@ const CUSTOM_GEOSITE_RULESETS = {
 
 function detectFormat(userAgent) {
     const ua = (userAgent || '').toLowerCase();
+    // Amnezia VPN imports its own vpn:// key format, not generic URI lists.
+    if (/amnezia/.test(ua)) return 'amnezia';
     // Shadowrocket expects base64-encoded URI list
     if (/shadowrocket/.test(ua)) return 'shadowrocket';
     // HAPP (Xray-core based) — plain URI list (individual servers in HAPP UI)
@@ -60,6 +62,40 @@ function detectFormat(userAgent) {
     if (/hiddify|hiddifynext|sing-?box|nekobox|nekoray|neko|sfi|sfa|sfm|sft|karing/.test(ua)) return 'singbox';
     if (/clash|stash|surge|loon/.test(ua)) return 'clash';
     return 'uri';
+}
+
+function base64Url(buffer) {
+    return Buffer.from(buffer).toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '');
+}
+
+function qtCompressJson(value) {
+    const raw = Buffer.from(JSON.stringify(value), 'utf8');
+    const prefix = Buffer.alloc(4);
+    prefix.writeUInt32BE(raw.length, 0);
+    return Buffer.concat([prefix, zlib.deflateSync(raw, { level: 8 })]);
+}
+
+function amneziaVpnKeyFromConfig(config) {
+    return `vpn://${base64Url(qtCompressJson(config))}`;
+}
+
+function buildAmneziaQrChunks(data, chunkSize = 500) {
+    const chunks = [];
+    const total = Math.max(1, Math.ceil(data.length / chunkSize));
+    for (let index = 0; index < total; index++) {
+        const chunk = data.subarray(index * chunkSize, (index + 1) * chunkSize);
+        const frame = Buffer.alloc(8);
+        frame.writeInt16BE(1984, 0);
+        frame.writeUInt8(total, 2);
+        frame.writeUInt8(index, 3);
+        // QDataStream serializes QByteArray as a 32-bit length followed by bytes.
+        frame.writeUInt32BE(chunk.length, 4);
+        chunks.push(base64Url(Buffer.concat([frame, chunk])));
+    }
+    return chunks;
 }
 
 function isBrowser(req) {
@@ -1812,34 +1848,6 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         return Buffer.from(String(value || ''), 'utf8').toString('base64');
     }
 
-    function base64Url(buffer) {
-        return Buffer.from(buffer).toString('base64')
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/g, '');
-    }
-
-    function qtCompressJson(value) {
-        const raw = Buffer.from(JSON.stringify(value), 'utf8');
-        const prefix = Buffer.alloc(4);
-        prefix.writeUInt32BE(raw.length, 0);
-        return Buffer.concat([prefix, zlib.deflateSync(raw, { level: 8 })]);
-    }
-
-    function buildAmneziaQrChunks(data, chunkSize = 500) {
-        const chunks = [];
-        const total = Math.max(1, Math.ceil(data.length / chunkSize));
-        for (let index = 0; index < total; index++) {
-            const chunk = data.subarray(index * chunkSize, (index + 1) * chunkSize);
-            const frame = Buffer.alloc(4);
-            frame.writeInt16BE(1984, 0);
-            frame.writeUInt8(total, 2);
-            frame.writeUInt8(index, 3);
-            chunks.push(base64Url(Buffer.concat([frame, chunk])));
-        }
-        return chunks;
-    }
-
     async function buildQrDataUrl(value, cacheKey, options = {}) {
         let qrDataUrl = await cache.getQR(cacheKey);
         if (qrDataUrl) return qrDataUrl;
@@ -2623,6 +2631,16 @@ function generateAmneziawgBundle(user, nodes) {
         .join('\n');
 }
 
+function generateAmneziaVpnKey(user, nodes) {
+    const configs = amneziawgService.buildClientConfigs(user, nodes);
+    if (configs.length === 0) return '# No AmneziaWG servers available\n';
+    if (configs.length === 1) return amneziaVpnKeyFromConfig(configs[0].amneziaNativeConfig);
+
+    return configs
+        .map(item => `# ===== ${item.name} =====\n${amneziaVpnKeyFromConfig(item.amneziaNativeConfig)}`)
+        .join('\n\n');
+}
+
 // ==================== HWID (subscription fetch) ====================
 
 // Default remark texts when the admin has not configured them in settings.
@@ -3048,6 +3066,12 @@ function generateSubscriptionData(user, nodes, format, userAgent, happProviderId
         case 'awg':
             content = generateAmneziawgBundle(user, nodes);
             break;
+        case 'amnezia':
+        case 'amnezia-vpn':
+        case 'vpn':
+            content = generateAmneziaVpnKey(user, nodes);
+            effectiveFormat = 'amnezia';
+            break;
         case 'uri':
         case 'raw':
         default: {
@@ -3104,6 +3128,9 @@ function sendCachedSubscription(res, data, format, userAgent, settings, hwidExtr
     let contentType = 'text/plain';
 
     switch (effectiveFormat) {
+        case 'amnezia':
+            contentType = 'text/plain';
+            break;
         case 'clash':
         case 'yaml':
             contentType = 'text/yaml';
@@ -3118,7 +3145,7 @@ function sendCachedSubscription(res, data, format, userAgent, settings, hwidExtr
     
     const headers = {
         'Content-Type': `${contentType}; charset=utf-8`,
-        'Content-Disposition': `attachment; filename="${data.username}${effectiveFormat === 'amneziawg' || effectiveFormat === 'awg' ? '.conf' : ''}"`,
+        'Content-Disposition': `attachment; filename="${data.username}${effectiveFormat === 'amneziawg' || effectiveFormat === 'awg' ? '.conf' : effectiveFormat === 'amnezia' ? '.txt' : ''}"`,
         'Profile-Title': encodeTitle(data.profileTitle),
         'Profile-Update-Interval': String(settings?.subscription?.updateInterval || 12),
         'Subscription-Userinfo': [
