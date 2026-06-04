@@ -362,9 +362,11 @@ WireGuard-подобный VPN-протокол с полями обфускац
 `amneziawg-tools`. Один IP может одновременно держать Hysteria, Xray и
 AmneziaWG, если у каждого реального протокола свой порт.
 
-Подписки для AmneziaWG выдаются как native config:
+Подписки для AmneziaWG выдаются как `.conf` config:
 `/api/files/<token>?format=amneziawg`. На HTML-странице подписки также
-показываются QR-коды по каждой AmneziaWG-ноде: внутри QR лежит native `.conf`.
+показываются карточки по каждой AmneziaWG-ноде: QR содержит сжатый Amnezia
+native third-party AWG payload для Amnezia VPN, а кнопки копирования/скачивания
+отдают обычный `.conf`.
 Авторазвертывание включает IPv4 forwarding/NAT для клиентского пула AmneziaWG.
 Подробности: [AmneziaWG support](docs/amneziawg.md).
 

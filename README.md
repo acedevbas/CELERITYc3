@@ -349,10 +349,11 @@ WireGuard-like VPN protocol with AmneziaWG 2.0 obfuscation fields (`Jc/Jmin/Jmax
 plus `amneziawg-tools`. Same IP can host AmneziaWG alongside Hysteria/Xray as
 long as each real protocol uses its own port. See [AmneziaWG support](docs/amneziawg.md).
 
-Subscriptions for this protocol are served as native configs via
+Subscriptions for this protocol are served as `.conf` configs via
 `/api/files/<token>?format=amneziawg`. The browser subscription page also shows
-per-node AmneziaWG QR codes whose payload is the native `.conf`. Auto setup
-enables IPv4 forwarding/NAT for the AmneziaWG client pool.
+per-node AmneziaWG cards: QR codes use compressed Amnezia native third-party AWG
+payloads for Amnezia VPN, while copy/download buttons expose the plain `.conf`.
+Auto setup enables IPv4 forwarding/NAT for the AmneziaWG client pool.
 
 ---
 

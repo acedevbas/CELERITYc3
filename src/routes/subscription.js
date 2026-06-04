@@ -11,6 +11,7 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const zlib = require('zlib');
 const QRCode = require('qrcode');
 const HyUser = require('../models/hyUserModel');
 const HyNode = require('../models/hyNodeModel');
@@ -1760,6 +1761,9 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                     name: 'AmneziaWG',
                     type: 'amneziawg',
                     uri: amneziawgService.generateClientConfig(user, node),
+                    amneziaNativeConfig: amneziawgService.generateAmneziaNativeConfig(user, node, {
+                        description: `${node.flag || ''} ${node.name || 'AmneziaWG'}`.trim(),
+                    }),
                 });
             } catch (err) {
                 logger.warn(`[Sub] AmneziaWG HTML config skipped for ${node.name}: ${err.message}`);
@@ -1798,6 +1802,28 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
 
     function escHtml(s) {
         return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function safeJson(value) {
+        return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    }
+
+    function base64Utf8(value) {
+        return Buffer.from(String(value || ''), 'utf8').toString('base64');
+    }
+
+    function base64Url(buffer) {
+        return Buffer.from(buffer).toString('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/g, '');
+    }
+
+    function qtCompressJson(value) {
+        const raw = Buffer.from(JSON.stringify(value), 'utf8');
+        const prefix = Buffer.alloc(4);
+        prefix.writeUInt32BE(raw.length, 0);
+        return Buffer.concat([prefix, zlib.deflateSync(raw, { level: 8 })]);
     }
 
     async function buildQrDataUrl(value, cacheKey, options = {}) {
@@ -1847,13 +1873,19 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
 
     const amneziaQrConfigs = allConfigs.filter(cfg => cfg.type === 'amneziawg');
     for (const cfg of amneziaQrConfigs) {
+        const nativeQrPayload = base64Url(qtCompressJson(cfg.amneziaNativeConfig));
+        cfg.nativeQrPayload = nativeQrPayload;
+        cfg.confB64 = base64Utf8(cfg.uri);
+        cfg.filename = `${String(cfg.location || 'amneziawg').replace(/[^A-Za-z0-9._-]+/g, '-') || 'amneziawg'}.conf`;
         const hash = crypto
             .createHash('sha256')
-            .update(cfg.uri)
+            .update(nativeQrPayload)
             .digest('hex')
             .slice(0, 16);
-        cfg.qrDataUrl = await buildQrDataUrl(cfg.uri, `awg-conf-v1:${hash}`, {
-            width: 300,
+        cfg.qrDataUrl = await buildQrDataUrl(nativeQrPayload, `awg-native-v1:${hash}`, {
+            width: 360,
+            margin: 2,
+            errorCorrectionLevel: 'M',
             color: { dark: '#000000', light: '#ffffff' },
         });
     }
@@ -1866,11 +1898,14 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                 <div class="awg-qr-card">
                     <div class="awg-qr-title">${escHtml(cfg.location)}</div>
                     <img src="${cfg.qrDataUrl}" alt="AmneziaWG QR" class="qr-image qr-image-standard">
-                    <button class="copy-btn" onclick="copyText(${JSON.stringify(cfg.uri)}, this)"><i class="ti ti-copy"></i> Копировать .conf</button>
+                    <div class="awg-qr-actions">
+                        <button class="copy-btn" data-copy-b64="${escAttr(cfg.confB64)}" onclick="copyDataText(this)"><i class="ti ti-copy"></i> Копировать .conf</button>
+                        <button class="copy-btn copy-btn-secondary" data-copy-b64="${escAttr(cfg.confB64)}" data-filename="${escAttr(cfg.filename)}" onclick="downloadConf(this)"><i class="ti ti-download"></i> Скачать .conf</button>
+                    </div>
                 </div>
                 `).join('')}
             </div>
-            <div class="qr-hint">QR содержит конфигурацию .conf для AmneziaWG</div>
+            <div class="qr-hint">QR содержит native-конфигурацию для Amnezia VPN. Для AmneziaWG-совместимых клиентов используйте .conf.</div>
            </div>`
         : '';
 
@@ -2247,8 +2282,9 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         .qr-image:hover { transform: scale(1.04); }
         .qr-hint { font-size: 12px; color: var(--text-muted); }
         .qr-image-standard {
-            width: 240px;
-            height: 240px;
+            width: min(300px, 100%);
+            height: auto;
+            aspect-ratio: 1 / 1;
             padding: 8px;
             background: #fff;
             border-radius: var(--radius-sm);
@@ -2268,11 +2304,25 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             border: 1px solid var(--glass-border);
             border-radius: var(--radius-sm);
             background: rgba(255, 255, 255, 0.025);
+            overflow: hidden;
         }
         .awg-qr-title {
             font-size: 13px;
             font-weight: 600;
             color: var(--text);
+        }
+        .awg-qr-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+            max-width: 100%;
+        }
+        .copy-btn-secondary {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--glass-border);
+            color: var(--text);
+            box-shadow: none;
         }
 
         /* === App buttons grid === */
@@ -2368,7 +2418,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             <h2><i class="ti ti-link"></i> ССЫЛКА ДЛЯ ПРИЛОЖЕНИЙ</h2>
             <div class="sub-box">
                 <input type="text" value="${baseUrl}" readonly id="subUrl">
-                <button class="copy-btn" onclick="copyText('${baseUrl}', this)"><i class="ti ti-copy"></i> Копировать</button>
+                <button class="copy-btn" data-copy-b64="${escAttr(base64Utf8(baseUrl))}" onclick="copyDataText(this)"><i class="ti ti-copy"></i> Копировать</button>
             </div>
         </div>
 
@@ -2378,7 +2428,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             <div class="location">
                 <div class="location-header" onclick="this.parentElement.classList.toggle('open')">
                     <span class="location-flag">${loc.flag}</span>
-                    <span class="location-name">${name}</span>
+                    <span class="location-name">${escHtml(name)}</span>
                     <span class="location-count">${loc.configs.length}</span>
                     <span class="location-arrow"><i class="ti ti-chevron-down"></i></span>
                 </div>
@@ -2404,9 +2454,32 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     <div class="toast" id="toast"><i class="ti ti-check"></i> Скопировано</div>
 
     <script>
-        const uris = ${JSON.stringify(allConfigs.map(c => c.uri))};
+        const uris = ${safeJson(allConfigs.map(c => c.uri))};
 
         function copyText(text, btn) { doCopy(text, btn); }
+
+        function decodeB64Utf8(value) {
+            const bytes = Uint8Array.from(atob(value || ''), c => c.charCodeAt(0));
+            return new TextDecoder().decode(bytes);
+        }
+
+        function copyDataText(btn) {
+            doCopy(decodeB64Utf8(btn.dataset.copyB64), btn);
+        }
+
+        function downloadConf(btn) {
+            const text = decodeB64Utf8(btn.dataset.copyB64);
+            const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = btn.dataset.filename || 'amneziawg.conf';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            success(btn);
+        }
 
         function copyUri(btn) {
             const allBtns = document.querySelectorAll('.location-configs .copy-btn');
