@@ -11,6 +11,7 @@ const cryptoService = require('../services/cryptoService');
 const logger = require('../utils/logger');
 const { requireScope } = require('../middleware/auth');
 const { invalidateNodesCache } = require('../utils/helpers');
+const amneziawgService = require('../services/amneziawgService');
 
 /**
  * GET /nodes - Список всех нод
@@ -87,7 +88,7 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
         const {
             name, ip, domain, sni, port, portRange, statsPort,
             groups, ssh, paths, settings, rankingCoefficient,
-            type, xray, virtual, cascadeRole, country, comment,
+            type, xray, amneziawg, virtual, cascadeRole, country, comment,
             hopInterval, acme, masquerade, bandwidth,
             ignoreClientBandwidth, speedTest, disableUDP,
             udpIdleTimeout, sniff, quic, resolver, acl,
@@ -98,14 +99,14 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
             return res.status(400).json({ error: 'name is required' });
         }
 
-        if (type && !['hysteria', 'xray', 'virtual'].includes(type)) {
-            return res.status(400).json({ error: 'type must be hysteria, xray, or virtual' });
+        if (type && !['hysteria', 'xray', 'amneziawg', 'virtual'].includes(type)) {
+            return res.status(400).json({ error: 'type must be hysteria, xray, amneziawg, or virtual' });
         }
 
         const nodeType = type || 'hysteria';
 
         if (nodeType !== 'virtual' && !ip) {
-            return res.status(400).json({ error: 'ip is required for hysteria and xray nodes' });
+            return res.status(400).json({ error: 'ip is required for real protocol nodes' });
         }
 
         // Validate virtual-specific fields up-front (pre('validate') hook is
@@ -174,6 +175,13 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
             nodeData.xray = xray;
         }
 
+        if (nodeType === 'amneziawg') {
+            nodeData.amneziawg = amneziawg || {};
+            const keys = amneziawgService.ensureNodeKeys(nodeData);
+            nodeData.amneziawg.privateKey = keys.privateKey;
+            nodeData.amneziawg.publicKey = keys.publicKey;
+        }
+
         if (nodeType === 'virtual') {
             const v = virtual || {};
             nodeData.virtual = {
@@ -222,7 +230,7 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
         const allowedUpdates = [
             'name', 'domain', 'sni', 'port', 'portRange', 'statsPort',
             'groups', 'ssh', 'paths', 'settings', 'active', 'rankingCoefficient',
-            'type', 'xray', 'virtual', 'cascadeRole', 'country', 'comment',
+            'type', 'xray', 'amneziawg', 'virtual', 'cascadeRole', 'country', 'comment',
             'hopInterval', 'acme', 'masquerade', 'bandwidth',
             'ignoreClientBandwidth', 'speedTest', 'disableUDP',
             'udpIdleTimeout', 'sniff', 'quic', 'resolver', 'acl',
@@ -247,7 +255,7 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
         // findByIdAndUpdate bypasses pre('validate') hooks even with runValidators,
         // so enforce type-specific invariants explicitly here. We need the existing
         // doc to know the resulting type when only one of {type,virtual} is sent.
-        const existing = await HyNode.findById(req.params.id).select('type ip virtual').lean();
+        const existing = await HyNode.findById(req.params.id).select('type ip virtual amneziawg +amneziawg.privateKey').lean();
         if (!existing) {
             return res.status(404).json({ error: 'Node not found' });
         }
@@ -267,6 +275,13 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
             updates.ip = null;
         } else if (!nextIp) {
             return res.status(400).json({ error: `Node type ${nextType} requires ip` });
+        }
+
+        if (nextType === 'amneziawg' && updates.amneziawg) {
+            updates.amneziawg = { ...(existing.amneziawg || {}), ...updates.amneziawg };
+            const keys = amneziawgService.ensureNodeKeys({ amneziawg: updates.amneziawg });
+            updates.amneziawg.privateKey = keys.privateKey;
+            updates.amneziawg.publicKey = keys.publicKey;
         }
 
         const node = await HyNode.findByIdAndUpdate(
@@ -408,7 +423,7 @@ router.post('/:id/reset-status', requireScope('nodes:write'), async (req, res) =
  */
 router.get('/:id/agent-info', requireScope('nodes:read'), async (req, res) => {
     try {
-        const node = await HyNode.findById(req.params.id);
+        const node = await HyNode.findById(req.params.id).select('+amneziawg.privateKey');
         if (!node) return res.status(404).json({ error: 'Node not found' });
         if (node.type !== 'xray') return res.status(400).json({ error: 'Not an Xray node' });
 
@@ -556,6 +571,20 @@ router.get('/:id/config', requireScope('nodes:read'), async (req, res) => {
             return res.type('application/json').send(configContent);
         }
 
+        if (node.type === 'amneziawg') {
+            const syncService = require('../services/syncService');
+            const users = await syncService._getUsersForNode(node);
+            await amneziawgService.ensureUsersPeerMaterial(users, { clientCidr: node.amneziawg?.clientCidr });
+            const configContent = configGenerator.generateAmneziawgServerConfig(node, users);
+            await HyNode.updateOne({ _id: node._id }, {
+                $set: {
+                    'amneziawg.privateKey': node.amneziawg.privateKey,
+                    'amneziawg.publicKey': node.amneziawg.publicKey,
+                },
+            });
+            return res.type('text/plain').send(configContent);
+        }
+
         const configContent = configGenerator.generateNodeConfig(node, authUrl);
 
         res.type('text/yaml').send(configContent);
@@ -570,10 +599,14 @@ router.get('/:id/config', requireScope('nodes:read'), async (req, res) => {
  */
 router.post('/:id/setup-port-hopping', requireScope('nodes:write'), async (req, res) => {
     try {
-        const node = await HyNode.findById(req.params.id);
+        const node = await HyNode.findById(req.params.id).select('+amneziawg.privateKey');
         
         if (!node) {
             return res.status(404).json({ error: 'Node not found' });
+        }
+
+        if (node.type !== 'hysteria') {
+            return res.status(400).json({ error: 'Port hopping is supported only for Hysteria nodes' });
         }
         
         const syncService = require('../services/syncService');
@@ -702,6 +735,15 @@ router.post('/:id/setup', requireScope('nodes:write'), async (req, res) => {
         let result;
         if (node.type === 'xray') {
             result = await nodeSetup.setupXrayNode(node, { restartService });
+        } else if (node.type === 'amneziawg') {
+            const syncService = require('../services/syncService');
+            const users = await syncService._getUsersForNode(node);
+            await amneziawgService.ensureUsersPeerMaterial(users, { clientCidr: node.amneziawg?.clientCidr });
+            result = await nodeSetup.setupAmneziawgNode(node, {
+                installAmneziawg: installHysteria,
+                restartService,
+                users,
+            });
         } else {
             result = await nodeSetup.setupNode(node, {
                 installHysteria,
@@ -712,7 +754,7 @@ router.post('/:id/setup', requireScope('nodes:write'), async (req, res) => {
 
         if (result.success) {
             const updateFields = { status: 'online', lastSync: new Date(), lastError: '', healthFailures: 0 };
-            if (node.type !== 'xray') updateFields.useTlsFiles = result.useTlsFiles;
+            if (node.type === 'hysteria') updateFields.useTlsFiles = result.useTlsFiles;
             await HyNode.findByIdAndUpdate(req.params.id, { $set: updateFields });
             await invalidateNodesCache();
             logger.info(`[Nodes API] Auto-setup completed for ${node.name} (${node.type})`);

@@ -1,0 +1,125 @@
+            <div class="form-section amneziawg-only" id="amneziawgSection" style="<%= node?.type === 'amneziawg' ? '' : 'display:none' %>">
+                <h3><i class="ti ti-shield-lock"></i> AmneziaWG 2.0</h3>
+                <small class="section-hint">WireGuard-like config with AmneziaWG 2.0 obfuscation fields.</small>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="awgInterfaceName">Interface</label>
+                        <input type="text" id="awgInterfaceName" name="amneziawg.interfaceName"
+                               value="<%= node?.amneziawg?.interfaceName || 'awg0' %>"
+                               placeholder="awg0" maxlength="15">
+                    </div>
+                    <div class="form-group">
+                        <label for="awgPublicKey">Public key</label>
+                        <input type="text" id="awgPublicKey" name="amneziawg.publicKey"
+                               value="<%= node?.amneziawg?.publicKey || '' %>"
+                               placeholder="Auto-generated" readonly>
+                        <input type="hidden" name="amneziawg.privateKey" value="">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="awgServerAddress">Server address</label>
+                        <input type="text" id="awgServerAddress" name="amneziawg.serverAddress"
+                               value="<%= node?.amneziawg?.serverAddress || '10.66.0.1/16' %>"
+                               placeholder="10.66.0.1/16">
+                    </div>
+                    <div class="form-group">
+                        <label for="awgClientCidr">Client pool</label>
+                        <input type="text" id="awgClientCidr" name="amneziawg.clientCidr"
+                               value="<%= node?.amneziawg?.clientCidr || '10.66.0.0/16' %>"
+                               placeholder="10.66.0.0/16">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="awgDns">DNS</label>
+                        <input type="text" id="awgDns" name="amneziawg.dns"
+                               value="<%= (node?.amneziawg?.dns || ['1.1.1.1', '8.8.8.8']).join(', ') %>"
+                               placeholder="1.1.1.1, 8.8.8.8">
+                    </div>
+                    <div class="form-group">
+                        <label for="awgAllowedIPs">Allowed IPs</label>
+                        <input type="text" id="awgAllowedIPs" name="amneziawg.allowedIPs"
+                               value="<%= (node?.amneziawg?.allowedIPs || ['0.0.0.0/0']).join(', ') %>"
+                               placeholder="0.0.0.0/0">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="awgEndpointHost">Endpoint host</label>
+                        <input type="text" id="awgEndpointHost" name="amneziawg.endpointHost"
+                               value="<%= node?.amneziawg?.endpointHost || '' %>"
+                               placeholder="empty = domain or IP">
+                    </div>
+                    <div class="form-group">
+                        <label for="awgMtu">MTU</label>
+                        <input type="number" id="awgMtu" name="amneziawg.mtu"
+                               value="<%= node?.amneziawg?.mtu || 1420 %>" min="576" max="9000">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="awgKeepalive">Persistent keepalive</label>
+                        <input type="number" id="awgKeepalive" name="amneziawg.persistentKeepalive"
+                               value="<%= node?.amneziawg?.persistentKeepalive ?? 25 %>" min="0" max="65535">
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label" style="margin-top:28px;">
+                            <input type="checkbox" name="amneziawg.advancedSecurity"
+                                   <%= node?.amneziawg?.advancedSecurity === false ? '' : 'checked' %>>
+                            <span class="checkbox-text">AdvancedSecurity peers</span>
+                        </label>
+                    </div>
+                </div>
+
+                <details class="node-advanced-details" <%= node?.type === 'amneziawg' ? 'open' : '' %>>
+                    <summary class="node-advanced-summary">
+                        <span><i class="ti ti-adjustments"></i> AmneziaWG 2.0 obfuscation</span>
+                        <i class="ti ti-chevron-down node-advanced-chevron"></i>
+                    </summary>
+                    <div class="form-section">
+                        <div class="form-row-3">
+                            <% ['jc','jmin','jmax'].forEach(function(k){ %>
+                                <div class="form-group">
+                                    <label for="awg_<%= k %>"><%= k.toUpperCase() %></label>
+                                    <input type="number" id="awg_<%= k %>" name="amneziawg.<%= k %>"
+                                           value="<%= node?.amneziawg?.[k] ?? ({jc:4,jmin:40,jmax:70}[k]) %>"
+                                           min="0" max="65535">
+                                </div>
+                            <% }); %>
+                        </div>
+                        <div class="form-row-3">
+                            <% ['s1','s2','s3','s4'].forEach(function(k){ %>
+                                <div class="form-group">
+                                    <label for="awg_<%= k %>"><%= k.toUpperCase() %></label>
+                                    <input type="number" id="awg_<%= k %>" name="amneziawg.<%= k %>"
+                                           value="<%= node?.amneziawg?.[k] ?? 0 %>" min="0" max="65535">
+                                </div>
+                            <% }); %>
+                        </div>
+                        <div class="form-row-3">
+                            <% ['h1','h2','h3','h4'].forEach(function(k, idx){ %>
+                                <div class="form-group">
+                                    <label for="awg_<%= k %>"><%= k.toUpperCase() %></label>
+                                    <input type="text" id="awg_<%= k %>" name="amneziawg.<%= k %>"
+                                           value="<%= node?.amneziawg?.[k] || String(idx + 1) %>">
+                                </div>
+                            <% }); %>
+                        </div>
+                        <div class="form-row-3">
+                            <% ['i1','i2','i3','i4','i5'].forEach(function(k){ %>
+                                <div class="form-group">
+                                    <label for="awg_<%= k %>"><%= k.toUpperCase() %></label>
+                                    <input type="text" id="awg_<%= k %>" name="amneziawg.<%= k %>"
+                                           value="<%= node?.amneziawg?.[k] || '' %>">
+                                </div>
+                            <% }); %>
+                        </div>
+                    </div>
+                </details>
+            </div>

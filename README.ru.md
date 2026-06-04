@@ -10,10 +10,11 @@
 [Node.js](package.json)
 [Hysteria](https://v2.hysteria.network/)
 [Xray](https://xtls.github.io/)
+[AmneziaWG](https://github.com/amnezia-vpn/amneziawg-go)
 [![Telegram](https://img.shields.io/badge/Telegram-Chat-2CA5E0?logo=telegram&logoColor=white)](https://t.me/+JKFdEr7TqvIyOTFi)
 [![Поддержать](https://img.shields.io/badge/%E2%99%A5-%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-EC4899)](https://celerity.help)
 
-**C³ CELERITY** by Click Connect — современная веб-панель для управления серверами [Hysteria 2](https://v2.hysteria.network/) и [Xray VLESS](https://xtls.github.io/) с централизованной авторизацией, автоматической настройкой нод и гибким распределением пользователей по группам.
+**C³ CELERITY** by Click Connect — современная веб-панель для управления серверами [Hysteria 2](https://v2.hysteria.network/), [Xray VLESS](https://xtls.github.io/) и [AmneziaWG 2.0](https://github.com/amnezia-vpn/amneziawg-go) с централизованной авторизацией, автоматической настройкой нод и гибким распределением пользователей по группам.
 
 **Создана для скорости:** Лёгкая архитектура, оптимизированная для быстрой работы на любом масштабе.
 
@@ -137,9 +138,9 @@ backend:
 ## ✨ Возможности
 
 - 🖥 **Веб-панель** — полноценный UI для управления нодами и пользователями
-- 🔐 **Двойной протокол** — Hysteria 2 и Xray VLESS на одной панели
+- 🔐 **Мультипротокол** — Hysteria 2, Xray VLESS и AmneziaWG 2.0 на одной панели
 - 🛡️ **2FA для панели (TOTP)** — единый сценарий подтверждения TOTP для входа администратора и чувствительных действий безопасности
-- 🚀 **Автонастройка нод** — установка Hysteria/Xray, сертификатов и port hopping в один клик
+- 🚀 **Автонастройка нод** — установка Hysteria/Xray/AmneziaWG, сертификатов или protocol config и firewall rules в один клик
 - 👥 **Группы серверов** — гибкая привязка пользователей к нодам
 - ⚖️ **Балансировка нагрузки** — распределение по загруженности
 - 🚫 **Фильтрация трафика (ACL)** — блокировка рекламы, доменов, IP; маршрутизация через прокси
@@ -351,6 +352,21 @@ Tunnel-REALITY настраивается **независимо** от клие
 | TLS     | Классический TLS с сертификатом                |
 | None    | Без шифрования (не рекомендуется)              |
 
+
+---
+
+### AmneziaWG 2.0
+
+WireGuard-подобный VPN-протокол с полями обфускации AmneziaWG 2.0 (`Jc/Jmin/Jmax`,
+`S1`-`S4`, `H1`-`H4`, `I1`-`I5`) и авторазвертыванием через `amneziawg-go` +
+`amneziawg-tools`. Один IP может одновременно держать Hysteria, Xray и
+AmneziaWG, если у каждого реального протокола свой порт.
+
+Подписки для AmneziaWG выдаются как native config:
+`/api/files/<token>?format=amneziawg`. На HTML-странице подписки также
+показываются QR-коды по каждой AmneziaWG-ноде: внутри QR лежит native `.conf`.
+Авторазвертывание включает IPv4 forwarding/NAT для клиентского пула AmneziaWG.
+Подробности: [AmneziaWG support](docs/amneziawg.md).
 
 ---
 
@@ -674,7 +690,7 @@ const expected = 'sha256=' + crypto
 
 | Поле                 | Тип        | Описание                                           |
 | -------------------- | ---------- | -------------------------------------------------- |
-| `type`               | String     | `hysteria` или `xray`                              |
+| `type`               | String     | `hysteria`, `xray`, `amneziawg` или `virtual`      |
 | `name`               | String     | Название                                           |
 | `flag`               | String     | Флаг страны (эмодзи)                               |
 | `ip`                 | String     | IP адрес                                           |
@@ -694,6 +710,7 @@ const expected = 'sha256=' + crypto
 | `status`             | String     | online/offline/error/syncing                       |
 | `traffic`            | Object     | `{ tx, rx, lastUpdate }` — трафик ноды             |
 | `xray`               | Object     | Настройки Xray (см. ниже)                          |
+| `amneziawg`          | Object     | Настройки AmneziaWG 2.0 (см. docs/amneziawg.md)    |
 
 
 #### Xray настройки (node.xray)

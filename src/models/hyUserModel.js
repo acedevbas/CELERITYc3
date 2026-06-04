@@ -1,5 +1,5 @@
 /**
- * Hysteria + Xray user model
+ * Hysteria + Xray + AmneziaWG user model
  */
 
 const mongoose = require('mongoose');
@@ -34,6 +34,15 @@ const hyUserSchema = new mongoose.Schema({
         type: String,
         default: () => crypto.randomUUID(),
         index: true,
+    },
+
+    // AmneziaWG peer material. Generated lazily when the user first appears
+    // in an AmneziaWG node config/subscription and then kept stable.
+    amneziawg: {
+        privateKey: { type: String, default: '', select: false },
+        publicKey: { type: String, default: '' },
+        presharedKey: { type: String, default: '', select: false },
+        address: { type: String, default: '' },
     },
 
     enabled: {

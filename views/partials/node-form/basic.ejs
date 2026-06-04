@@ -112,6 +112,14 @@
                         <span class="proto-name">Xray VLESS</span>
                         <span class="proto-desc">Reality / TLS · WebSocket · gRPC</span>
                     </label>
+                    <label class="proto-option <% if (node?.type === 'amneziawg') { %>active<% } %>" id="protoAmneziawgLabel">
+                        <input type="radio" name="type" value="amneziawg" id="protoAmneziawg"
+                               <%= node?.type === 'amneziawg' ? 'checked' : '' %>
+                               onchange="switchProto('amneziawg')">
+                        <span class="proto-icon"><i class="ti ti-shield-lock" style="font-size:24px;"></i></span>
+                        <span class="proto-name">AmneziaWG 2.0</span>
+                        <span class="proto-desc">AWG · DPI camouflage · UDP</span>
+                    </label>
                     <label class="proto-option <% if (node?.type === 'virtual') { %>active<% } %>" id="protoVirtualLabel">
                         <input type="radio" name="type" value="virtual" id="protoVirtual"
                                <%= node?.type === 'virtual' ? 'checked' : '' %>

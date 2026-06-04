@@ -1,5 +1,5 @@
 /**
- * Hysteria + Xray node model with cascade topology support
+ * Hysteria + Xray + AmneziaWG node model with cascade topology support
  */
 
 const mongoose = require('mongoose');
@@ -239,9 +239,39 @@ const virtualConfigSchema = new mongoose.Schema({
     },
 }, { _id: false });
 
+const amneziawgConfigSchema = new mongoose.Schema({
+    interfaceName: { type: String, default: 'awg0', trim: true, maxlength: 15 },
+    serverAddress: { type: String, default: '10.66.0.1/16' },
+    clientCidr: { type: String, default: '10.66.0.0/16' },
+    endpointHost: { type: String, default: '' },
+    privateKey: { type: String, default: '', select: false },
+    publicKey: { type: String, default: '' },
+    dns: { type: [String], default: ['1.1.1.1', '8.8.8.8'] },
+    mtu: { type: Number, default: 1420 },
+    persistentKeepalive: { type: Number, default: 25 },
+    allowedIPs: { type: [String], default: ['0.0.0.0/0'] },
+    advancedSecurity: { type: Boolean, default: true },
+    jc: { type: Number, default: 4 },
+    jmin: { type: Number, default: 40 },
+    jmax: { type: Number, default: 70 },
+    s1: { type: Number, default: 0 },
+    s2: { type: Number, default: 0 },
+    s3: { type: Number, default: 0 },
+    s4: { type: Number, default: 0 },
+    h1: { type: String, default: '1' },
+    h2: { type: String, default: '2' },
+    h3: { type: String, default: '3' },
+    h4: { type: String, default: '4' },
+    i1: { type: String, default: '' },
+    i2: { type: String, default: '' },
+    i3: { type: String, default: '' },
+    i4: { type: String, default: '' },
+    i5: { type: String, default: '' },
+}, { _id: false });
+
 const hyNodeSchema = new mongoose.Schema({
-    // 'hysteria' (default), 'xray' or 'virtual' (balancer aggregator).
-    type: { type: String, enum: ['hysteria', 'xray', 'virtual'], default: 'hysteria' },
+    // 'hysteria' (default), 'xray', 'amneziawg' or 'virtual' (balancer aggregator).
+    type: { type: String, enum: ['hysteria', 'xray', 'amneziawg', 'virtual'], default: 'hysteria' },
 
     name: { type: String, required: true },
     flag: { type: String, default: '' },
@@ -276,6 +306,9 @@ const hyNodeSchema = new mongoose.Schema({
 
     // Xray-specific configuration (only used when type === 'xray')
     xray: { type: xrayConfigSchema, default: () => ({}) },
+
+    // AmneziaWG-specific configuration (only used when type === 'amneziawg')
+    amneziawg: { type: amneziawgConfigSchema, default: () => ({}) },
 
     // Virtual-specific configuration (only used when type === 'virtual')
     virtual: { type: virtualConfigSchema, default: () => ({}) },

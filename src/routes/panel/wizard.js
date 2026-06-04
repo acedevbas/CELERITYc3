@@ -2,7 +2,7 @@
  * Onboarding wizard routes.
  * Shown once after first admin login. Lets the user choose a deployment scenario
  * (self-host on this server vs. manage remote nodes) and optionally bootstrap
- * local Hysteria / Xray nodes via auto-setup.
+ * local Hysteria / Xray / AmneziaWG nodes via auto-setup.
  */
 
 const crypto = require('crypto');
@@ -17,6 +17,7 @@ const Settings = require('../../models/settingsModel');
 const cryptoService = require('../../services/cryptoService');
 const sshKeyService = require('../../services/sshKeyService');
 const nodeSetup = require('../../services/nodeSetup');
+const amneziawgService = require('../../services/amneziawgService');
 const config = require('../../../config');
 const logger = require('../../utils/logger');
 const { invalidateOnboardingCache } = require('./helpers');
@@ -196,6 +197,7 @@ router.get('/wizard/self-host', async (req, res) => {
             hyPortRange: '20000-50000',
             hyDomain:    config.PANEL_DOMAIN || '',
             xrayPort:    8443,
+            awgPort:     51820,
         },
     });
 });
@@ -207,8 +209,9 @@ router.post('/wizard/self-host', wizardLimiter, async (req, res) => {
     try {
         const installHysteria = req.body.installHysteria === 'on';
         const installXray     = req.body.installXray     === 'on';
+        const installAmneziawg = req.body.installAmneziawg === 'on';
 
-        if (!installHysteria && !installXray) {
+        if (!installHysteria && !installXray && !installAmneziawg) {
             return res.redirect('/panel/wizard/self-host?error=' + encodeURIComponent('Select at least one protocol to install'));
         }
 
@@ -303,6 +306,48 @@ router.post('/wizard/self-host', wizardLimiter, async (req, res) => {
             });
         }
 
+        if (installAmneziawg) {
+            const awgPort = parseInt(req.body['awg.port']) || 51820;
+            const awgClientCidr = (req.body['awg.clientCidr'] || '10.66.0.0/16').trim();
+            const awgServerAddress = (req.body['awg.serverAddress'] || '10.66.0.1/16').trim();
+            const awgNode = {
+                type:        'amneziawg',
+                name:        'Local AmneziaWG',
+                ip:          sshIp,
+                domain:      '',
+                port:        awgPort,
+                ssh:         resolvedSsh,
+                active:      true,
+                cascadeRole: 'standalone',
+                amneziawg: {
+                    interfaceName: 'awg0',
+                    serverAddress: awgServerAddress,
+                    clientCidr: awgClientCidr,
+                    endpointHost: sshIp,
+                    dns: ['1.1.1.1', '8.8.8.8'],
+                    allowedIPs: ['0.0.0.0/0'],
+                    mtu: 1420,
+                    persistentKeepalive: 25,
+                    advancedSecurity: true,
+                    jc: 4,
+                    jmin: 40,
+                    jmax: 70,
+                    s1: 0,
+                    s2: 0,
+                    s3: 0,
+                    s4: 0,
+                    h1: '1',
+                    h2: '2',
+                    h3: '3',
+                    h4: '4',
+                },
+            };
+            const keys = amneziawgService.ensureNodeKeys(awgNode);
+            awgNode.amneziawg.privateKey = keys.privateKey;
+            awgNode.amneziawg.publicKey = keys.publicKey;
+            nodesToCreate.push(awgNode);
+        }
+
         // Deduplicate: skip if a node with same ip+type already exists
         const createdNodeIds = [];
         for (const nodeData of nodesToCreate) {
@@ -371,7 +416,7 @@ async function _runBootstrap(taskId, nodeIds) {
     }
 
     for (const nodeId of nodeIds) {
-        const node = await HyNode.findById(nodeId);
+        const node = await HyNode.findById(nodeId).select('+amneziawg.privateKey');
         if (!node) {
             pushLog(`[Error] Node ${nodeId} not found, skipping`);
             allSuccess = false;
@@ -388,6 +433,15 @@ async function _runBootstrap(taskId, nodeIds) {
         try {
             if (node.type === 'xray') {
                 result = await nodeSetup.setupXrayNodeWithAgent(node, { restartService: true });
+            } else if (node.type === 'amneziawg') {
+                const syncService = require('../../services/syncService');
+                const users = await syncService._getUsersForNode(node);
+                await amneziawgService.ensureUsersPeerMaterial(users, { clientCidr: node.amneziawg?.clientCidr });
+                result = await nodeSetup.setupAmneziawgNode(node, {
+                    installAmneziawg: true,
+                    restartService: true,
+                    users,
+                });
             } else {
                 result = await nodeSetup.setupNode(node, {
                     installHysteria:  true,
@@ -403,7 +457,11 @@ async function _runBootstrap(taskId, nodeIds) {
 
         if (result.success) {
             const updateFields = { status: 'online', lastSync: new Date(), lastError: '', healthFailures: 0 };
-            if (node.type !== 'xray') updateFields.useTlsFiles = result.useTlsFiles;
+            if (node.type === 'hysteria') updateFields.useTlsFiles = result.useTlsFiles;
+            if (node.type === 'amneziawg' && node.amneziawg?.privateKey) {
+                updateFields['amneziawg.privateKey'] = node.amneziawg.privateKey;
+                updateFields['amneziawg.publicKey'] = node.amneziawg.publicKey;
+            }
             await HyNode.findByIdAndUpdate(nodeId, { $set: updateFields });
             statusChanged = true;
             pushLog(`[OK] ${node.type.toUpperCase()} node setup completed`);

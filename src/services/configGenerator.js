@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
 const appConfig = require('../../config');
+const amneziawgService = require('./amneziawgService');
 
 // ─── Panel TLS certificate inlining (Marzban-style) ──────────────────────────
 //
@@ -1649,6 +1650,8 @@ WantedBy=multi-user.target
 
 module.exports = {
     generateNodeConfig,
+    generateAmneziawgServerConfig: amneziawgService.generateServerConfig,
+    generateAmneziawgClientConfig: amneziawgService.generateClientConfig,
     generateNodeConfigACME,
     generateSystemdService,
     applyOutboundsAndAcl,

@@ -87,14 +87,14 @@ Virtual nodes carry no IP/SSH/agent and never run health checks themselves.`,
         NodeCreate: {
             type: 'object',
             required: ['name'],
-            description: `Payload for creating a Hysteria, Xray, or Virtual (load-balancer) node.
+            description: `Payload for creating a Hysteria, Xray, AmneziaWG, or Virtual (load-balancer) node.
 
-\`ip\` is **required** for \`hysteria\`/\`xray\` and **must be omitted** for \`virtual\`.
+\`ip\` is **required** for real protocol nodes and **must be omitted** for \`virtual\`.
 For \`virtual\` you must additionally pass a non-empty \`virtual\` object.`,
             properties: {
                 name: { type: 'string', example: 'Germany 1', description: 'Display name shown in panel and subscriptions.' },
-                ip: { type: 'string', example: '203.0.113.10', description: 'Server IP address. Required for hysteria/xray, ignored (always null) for virtual.' },
-                type: { type: 'string', enum: ['hysteria', 'xray', 'virtual'], default: 'hysteria', description: 'Node protocol family. `virtual` = load-balancer entry over real sibling nodes (no remote server).' },
+                ip: { type: 'string', example: '203.0.113.10', description: 'Server IP address. Required for real protocol nodes, ignored (always null) for virtual.' },
+                type: { type: 'string', enum: ['hysteria', 'xray', 'amneziawg', 'virtual'], default: 'hysteria', description: 'Node protocol family. `virtual` = load-balancer entry over real sibling nodes (no remote server).' },
                 domain: { type: 'string', example: 'de.example.com', description: 'Public domain for TLS/SNI.' },
                 sni: { type: 'string', example: 'de.example.com', description: 'Optional SNI override.' },
                 port: { type: 'integer', example: 443, description: 'Main service port.' },
@@ -104,6 +104,7 @@ For \`virtual\` you must additionally pass a non-empty \`virtual\` object.`,
                 maxOnlineUsers: { type: 'integer', example: 0, description: '0 = unlimited.' },
                 ssh: { type: 'object', description: 'SSH credentials. Password or privateKey can be provided. Ignored for virtual nodes.' },
                 xray: { type: 'object', description: 'Xray-specific settings when `type=xray`.' },
+                amneziawg: { type: 'object', description: 'AmneziaWG-specific settings when `type=amneziawg`.' },
                 virtual: { $ref: '#/components/schemas/VirtualConfig' },
                 cascadeRole: { type: 'string', enum: ['standalone', 'portal', 'bridge'], default: 'standalone', description: 'Always forced to `standalone` for virtual nodes.' },
                 country: { type: 'string', example: 'DE' },
@@ -131,8 +132,9 @@ the API will clear \`ip\` automatically. When the resulting \`type\` is not virt
                 settings: { type: 'object' },
                 active: { type: 'boolean' },
                 rankingCoefficient: { type: 'number' },
-                type: { type: 'string', enum: ['hysteria', 'xray', 'virtual'] },
+                type: { type: 'string', enum: ['hysteria', 'xray', 'amneziawg', 'virtual'] },
                 xray: { type: 'object' },
+                amneziawg: { type: 'object' },
                 virtual: { $ref: '#/components/schemas/VirtualConfig' },
                 cascadeRole: { type: 'string' },
                 country: { type: 'string' },
@@ -1845,9 +1847,9 @@ These endpoints are not under \`/api\` and are not part of this specification:
             post: {
                 tags: ['Nodes'],
                 summary: 'Create node',
-                description: `Creates a Hysteria, Xray, or Virtual (load-balancer) node.
+                description: `Creates a Hysteria, Xray, AmneziaWG, or Virtual (load-balancer) node.
 
-- **\`type=hysteria\`** (default) / **\`type=xray\`** — \`ip\` required. \`statsSecret\` is
+- **\`type=hysteria\`** (default) / **\`type=xray\`** / **\`type=amneziawg\`** — \`ip\` required. \`statsSecret\` is
   generated server-side. Returns 409 if the same IP already has a node of the same \`type\`.
 - **\`type=virtual\`** — pure logical balancer over real sibling nodes. **Do not** pass
   \`ip\` or \`ssh\`; pass a \`virtual\` object instead. Virtual nodes never run setup,
@@ -1876,8 +1878,8 @@ See the request body examples panel for both flavours.`,
                                 schema: { $ref: '#/components/schemas/Error' },
                                 examples: {
                                     required: { value: { error: 'name is required' } },
-                                    missingIp: { value: { error: 'ip is required for hysteria and xray nodes' } },
-                                    badType: { value: { error: 'type must be hysteria, xray, or virtual' } },
+                                    missingIp: { value: { error: 'ip is required for real protocol nodes' } },
+                                    badType: { value: { error: 'type must be hysteria, xray, amneziawg, or virtual' } },
                                     virtualNoSources: { value: { error: 'Virtual node (manual): at least one source required' } },
                                     virtualNoGroup: { value: { error: 'Virtual node (group): sourceGroup required' } },
                                 },
@@ -1904,14 +1906,14 @@ See the request body examples panel for both flavours.`,
             get: {
                 tags: ['Nodes'],
                 summary: 'Check sibling nodes by IP',
-                description: 'Returns protocol sibling nodes for a given IP address. Used by the UI when adding Hysteria/Xray nodes on the same host.',
+                description: 'Returns protocol sibling nodes for a given IP address. Used by the UI when adding multiple protocol nodes on the same host.',
                 parameters: [
                     { name: 'ip', in: 'query', required: true, schema: { type: 'string' }, description: 'Node IP address' },
                 ],
                 responses: {
                     200: {
                         description: 'Matching nodes',
-                        content: { 'application/json': { schema: { type: 'object', properties: { nodes: { type: 'array', items: { type: 'object', properties: { _id: { type: 'string' }, type: { type: 'string', enum: ['hysteria', 'xray', 'virtual'] }, name: { type: 'string' } } } } } } } },
+                        content: { 'application/json': { schema: { type: 'object', properties: { nodes: { type: 'array', items: { type: 'object', properties: { _id: { type: 'string' }, type: { type: 'string', enum: ['hysteria', 'xray', 'amneziawg', 'virtual'] }, name: { type: 'string' } } } } } } } },
                     },
                     401: { $ref: '#/components/responses/Unauthorized' },
                     403: { $ref: '#/components/responses/Forbidden' },
@@ -2090,6 +2092,8 @@ See the request body examples panel for both flavours.`,
 
 **Xray nodes** (\`type=xray\`): runs Xray agent setup; only \`restartService\` from the body is used.
 
+**AmneziaWG nodes** (\`type=amneziawg\`): installs \`amneziawg-go\` + \`amneziawg-tools\`, uploads \`/etc/wireguard/<interface>.conf\`, opens the UDP port, and starts \`awg-quick@<interface>\`. \`installHysteria\` is treated as the install/update flag for backward-compatible request bodies.
+
 **Virtual nodes** (\`type=virtual\`): not supported — returns **400** because virtual nodes have no remote service to provision.
 
 **⚠️ Long-running:** typically **30 seconds to 2 minutes**. Set client timeout to at least **3 minutes**.
@@ -2101,9 +2105,9 @@ See the request body examples panel for both flavours.`,
                             schema: {
                                 type: 'object',
                                 properties: {
-                                    installHysteria:  { type: 'boolean', default: true, description: 'Install/update Hysteria binary' },
-                                    setupPortHopping: { type: 'boolean', default: true, description: 'Configure iptables NAT rules for port hopping range' },
-                                    restartService:   { type: 'boolean', default: true, description: 'Enable and restart hysteria-server systemd unit' },
+                                    installHysteria:  { type: 'boolean', default: true, description: 'Install/update protocol binary (Hysteria legacy name; also used for AmneziaWG)' },
+                                    setupPortHopping: { type: 'boolean', default: true, description: 'Configure iptables NAT rules for Hysteria port hopping range' },
+                                    restartService:   { type: 'boolean', default: true, description: 'Enable and restart protocol systemd unit' },
                                 },
                             },
                             example: {

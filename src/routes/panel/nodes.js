@@ -24,6 +24,8 @@ const {
     render,
     parseXrayFormFields,
     validateXrayFormFields,
+    parseAmneziawgFormFields,
+    validateAmneziawgFormFields,
     ensureExtraInboundRealityKeys,
     resolveManualKeyPlaceholder,
     sanitizeXrayForRender,
@@ -169,9 +171,13 @@ router.get('/nodes', async (req, res) => {
             Settings.get(),
         ]);
 
-        // Build a map of IP → protocol count so the template can show dual-protocol badges
+        // Build a map of IP → protocol count so the template can show multi-protocol badges.
         const ipProtocolCount = {};
-        nodes.forEach(n => { ipProtocolCount[n.ip] = (ipProtocolCount[n.ip] || 0) + 1; });
+        nodes.forEach(n => {
+            if (n.type !== 'virtual' && n.ip) {
+                ipProtocolCount[n.ip] = (ipProtocolCount[n.ip] || 0) + 1;
+            }
+        });
 
         render(res, 'nodes', {
             title: res.locals.locales.nodes.title,
@@ -210,13 +216,17 @@ router.get('/nodes/add', async (req, res) => {
                 .lean();
             // Virtual nodes can't seed a sibling protocol — they have no IP/transport.
             if (source && source.type !== 'virtual') {
-                // Flip the protocol: if source is hysteria → suggest xray, and vice-versa
+                const siblings = await HyNode.find({ ip: source.ip, type: { $ne: 'virtual' } })
+                    .select('type')
+                    .lean();
+                const existingTypes = new Set(siblings.map(n => n.type));
+                const nextType = ['hysteria', 'xray', 'amneziawg'].find(t => !existingTypes.has(t)) || 'hysteria';
                 prefillNode = {
                     ip: source.ip,
                     flag: source.flag || '',
                     country: source.country || '',
                     groups: source.groups || [],
-                    type: source.type === 'xray' ? 'hysteria' : 'xray',
+                    type: nextType,
                 };
             }
         }
@@ -287,7 +297,7 @@ router.patch('/nodes/reorder', async (req, res) => {
 router.post('/nodes', async (req, res) => {
     try {
         const { name } = req.body;
-        const nodeType = ['xray', 'virtual'].includes(req.body.type) ? req.body.type : 'hysteria';
+        const nodeType = ['xray', 'amneziawg', 'virtual'].includes(req.body.type) ? req.body.type : 'hysteria';
         const ip = req.body.ip || '';
 
         if (!name) {
@@ -380,6 +390,15 @@ router.post('/nodes', async (req, res) => {
             if (nodeData.cascadeRole !== 'bridge' && !nodeData.xray.agentToken) {
                 nodeData.xray.agentToken = nodeSetup.generateAgentToken();
             }
+        } else if (nodeType === 'amneziawg') {
+            nodeData.amneziawg = parseAmneziawgFormFields(req.body);
+            const awgError = validateAmneziawgFormFields(nodeData.amneziawg);
+            if (awgError) {
+                return res.redirect(`/panel/nodes/add?error=${encodeURIComponent(awgError)}`);
+            }
+            const keys = require('../../services/amneziawgService').ensureNodeKeys(nodeData);
+            nodeData.amneziawg.privateKey = keys.privateKey;
+            nodeData.amneziawg.publicKey = keys.publicKey;
         } else if (nodeType === 'virtual') {
             const virtualError = applyVirtualFormFields(nodeData, req.body);
             if (virtualError) {
@@ -458,7 +477,7 @@ router.post('/nodes/scan-sni', sniScanLimiter, async (req, res) => {
 // POST /panel/nodes/preview-config - Generate config preview from current form values
 router.post('/nodes/preview-config', async (req, res) => {
     try {
-        const nodeType = req.body.type === 'xray' ? 'xray' : 'hysteria';
+        const nodeType = ['xray', 'amneziawg', 'virtual'].includes(req.body.type) ? req.body.type : 'hysteria';
         if (nodeType !== 'hysteria') {
             return res.status(400).json({ success: false, error: 'Preview config supports only Hysteria nodes' });
         }
@@ -571,13 +590,13 @@ router.post('/nodes/:id', async (req, res) => {
     const nodeId = req.params.id;
     try {
         // Full doc (not partial) — we .save() it below; +manualKey is select:false.
-        const existingNode = await HyNode.findById(nodeId).select('+xray.manualKey');
+        const existingNode = await HyNode.findById(nodeId).select('+xray.manualKey +amneziawg.privateKey');
         if (!existingNode) {
             return res.redirect('/panel/nodes');
         }
 
         const { name } = req.body;
-        const nodeType = ['xray', 'virtual'].includes(req.body.type) ? req.body.type : 'hysteria';
+        const nodeType = ['xray', 'amneziawg', 'virtual'].includes(req.body.type) ? req.body.type : 'hysteria';
         const ip = req.body.ip || '';
 
         if (!name) {
@@ -647,6 +666,21 @@ router.post('/nodes/:id', async (req, res) => {
             if ((req.body.cascadeRole || 'standalone') !== 'bridge' && !updates.xray.agentToken) {
                 updates.xray.agentToken = nodeSetup.generateAgentToken();
             }
+        } else if (nodeType === 'amneziawg') {
+            const existingAwg = (existingNode.amneziawg && typeof existingNode.amneziawg.toObject === 'function')
+                ? existingNode.amneziawg.toObject()
+                : (existingNode.amneziawg || {});
+            updates.amneziawg = {
+                ...existingAwg,
+                ...parseAmneziawgFormFields(req.body),
+            };
+            const awgError = validateAmneziawgFormFields(updates.amneziawg);
+            if (awgError) {
+                return res.redirect(`/panel/nodes/${nodeId}?error=${encodeURIComponent(awgError)}`);
+            }
+            const keys = require('../../services/amneziawgService').ensureNodeKeys({ amneziawg: updates.amneziawg });
+            updates.amneziawg.privateKey = keys.privateKey;
+            updates.amneziawg.publicKey = keys.publicKey;
         } else if (nodeType === 'virtual') {
             const virtualError = applyVirtualFormFields(updates, req.body);
             if (virtualError) {
@@ -709,7 +743,7 @@ router.post('/nodes/:id', async (req, res) => {
 // POST /panel/nodes/:id/setup - Auto-setup node via SSH
 router.post('/nodes/:id/setup', async (req, res) => {
     try {
-        const node = await HyNode.findById(req.params.id);
+        const node = await HyNode.findById(req.params.id).select('+amneziawg.privateKey');
         
         if (!node) {
             return res.status(404).json({ success: false, error: 'Нода не найдена', logs: [] });
@@ -734,6 +768,23 @@ router.post('/nodes/:id/setup', async (req, res) => {
             }
         } else if (node.type === 'xray') {
             result = await nodeSetup.setupXrayNodeWithAgent(node, { restartService: true });
+        } else if (node.type === 'amneziawg') {
+            const users = await syncService._getUsersForNode(node);
+            const awgService = require('../../services/amneziawgService');
+            await awgService.ensureUsersPeerMaterial(users, { clientCidr: node.amneziawg?.clientCidr });
+            result = await nodeSetup.setupAmneziawgNode(node, {
+                installAmneziawg: true,
+                restartService: true,
+                users,
+            });
+            if (result.success && node.amneziawg?.privateKey) {
+                await HyNode.updateOne({ _id: node._id }, {
+                    $set: {
+                        'amneziawg.privateKey': node.amneziawg.privateKey,
+                        'amneziawg.publicKey': node.amneziawg.publicKey,
+                    },
+                });
+            }
         } else {
             const skipHopping = isSameVpsAsPanel(node);
             result = await nodeSetup.setupNode(node, {
@@ -745,7 +796,7 @@ router.post('/nodes/:id/setup', async (req, res) => {
         
         if (result.success) {
             const updateFields = { status: 'online', lastSync: new Date(), lastError: '', healthFailures: 0 };
-            if (node.type !== 'xray') updateFields.useTlsFiles = result.useTlsFiles;
+            if (node.type === 'hysteria') updateFields.useTlsFiles = result.useTlsFiles;
             if (node.cascadeRole === 'bridge') updateFields.status = 'offline';
             await HyNode.findByIdAndUpdate(req.params.id, { $set: updateFields });
             await invalidateNodesCache();
@@ -906,7 +957,9 @@ router.get('/nodes/:id/get-config', async (req, res) => {
         const conn = await nodeSetup.connectSSH(node);
         const configPath = node.type === 'xray'
             ? '/usr/local/etc/xray/config.json'
-            : (node.paths?.config || '/etc/hysteria/config.yaml');
+            : node.type === 'amneziawg'
+                ? `/etc/wireguard/${node.amneziawg?.interfaceName || 'awg0'}.conf`
+                : (node.paths?.config || '/etc/hysteria/config.yaml');
         const result = await nodeSetup.execSSH(conn, `cat ${configPath}`);
         conn.end();
         
@@ -936,6 +989,8 @@ router.get('/nodes/:id/logs', async (req, res) => {
         logger.debug(`[Panel] Getting logs for node ${node.name} (type: ${node.type})`);
         const result = node.type === 'xray'
             ? await nodeSetup.getXrayNodeLogs(node, 100)
+            : node.type === 'amneziawg'
+                ? await nodeSetup.getAmneziawgNodeLogs(node, 100)
             : await nodeSetup.getNodeLogs(node, 100);
         res.json(result);
     } catch (error) {
@@ -1045,7 +1100,7 @@ router.get('/broadcast-terminal', async (req, res) => {
             .select('_id name ip type status flag ssh.port ssh.username groups')
             .populate('groups', 'name')
             .lean();
-        // Deduplicate by IP (one physical server may have two protocol nodes)
+        // Deduplicate by IP (one physical server may have multiple protocol nodes).
         const seenIps = new Set();
         const sshNodes = [];
         for (const n of nodes) {
@@ -1223,7 +1278,11 @@ router.post('/nodes/:id/restart', async (req, res) => {
         }
 
         const conn = await nodeSetup.connectSSH(node);
-        const serviceName = node.type === 'xray' ? 'xray' : 'hysteria-server';
+        const serviceName = node.type === 'xray'
+            ? 'xray'
+            : node.type === 'amneziawg'
+                ? `awg-quick@${node.amneziawg?.interfaceName || 'awg0'}`
+                : 'hysteria-server';
         const result = await nodeSetup.execSSH(conn, `systemctl restart ${serviceName} && sleep 2 && systemctl is-active ${serviceName}`);
         conn.end();
 

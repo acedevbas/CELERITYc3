@@ -8,7 +8,7 @@
                         <input type="number" id="port" name="port" value="<%= node?.port || 443 %>"
                                placeholder="443" oninput="checkXrayPortConflict()">
                     </div>
-                    <div class="form-group hysteria-only" id="portRangeGroup" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                    <div class="form-group hysteria-only" id="portRangeGroup" style="<%= (!node || node?.type === 'hysteria') ? '' : 'display:none' %>">
                         <label for="portRange"><%= t('nodes.portRange') %></label>
                         <input type="text" id="portRange" name="portRange" value="<%= node?.portRange || '20000-50000' %>"
                                placeholder="20000-50000">
@@ -16,7 +16,7 @@
                     </div>
                 </div>
 
-                <div class="form-group hysteria-only" id="hopIntervalGroup" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                <div class="form-group hysteria-only" id="hopIntervalGroup" style="<%= (!node || node?.type === 'hysteria') ? '' : 'display:none' %>">
                     <label for="hopInterval"><%= t('nodes.hopInterval') %></label>
                     <input type="text" id="hopInterval" name="hopInterval" value="<%= node?.hopInterval || '' %>" placeholder="30s">
                     <small><%- renderDocsIcon('portHopping') %><%= t('nodes.hopIntervalHint') %></small>
@@ -38,11 +38,11 @@
                     <label for="domain"><%= t('nodes.domain') %></label>
                     <input type="text" id="domain" name="domain" value="<%= node?.domain || '' %>"
                            placeholder="de.example.com" oninput="toggleAcmeByDomain()">
-                    <small id="domainHintHysteria" style="<%= node?.type === 'xray' ? 'display:none' : '' %>"><%= t('nodes.domainHintHysteria') %></small>
+                    <small id="domainHintHysteria" style="<%= (!node || node?.type === 'hysteria') ? '' : 'display:none' %>"><%= t('nodes.domainHintHysteria') %></small>
                     <small id="domainHintXrayManual" style="<%= _xrayManualTls ? '' : 'display:none' %>"><%= t('nodes.domainHintXrayManual') %></small>
                 </div>
 
-                <div class="form-group hysteria-only" id="acmeAdvancedToggleGroup" style="<%= node?.type === 'xray' || !node?.domain ? 'display:none' : '' %>">
+                <div class="form-group hysteria-only" id="acmeAdvancedToggleGroup" style="<%= (!node || node?.type === 'hysteria') && node?.domain ? '' : 'display:none' %>">
                     <div class="section-subtitle"><%= t('nodes.sectionAcmeAdvanced') %> (<%= t('nodes.optionalSuffix') %>)</div>
                     <small class="section-hint"><%- renderDocsIcon('acme') %><%= t('nodes.sectionAcmeAdvancedHint') %></small>
                     <div class="form-row">
@@ -64,7 +64,7 @@
                     </label>
                 </div>
 
-                <div class="hysteria-only optional-fields-wrap" id="acmeAdvancedFieldsWrap" style="<%= node?.type === 'xray' || !node?.domain || !acmeAdvancedEnabled ? 'display:none' : '' %>">
+                <div class="hysteria-only optional-fields-wrap" id="acmeAdvancedFieldsWrap" style="<%= (!node || node?.type === 'hysteria') && node?.domain && acmeAdvancedEnabled ? '' : 'display:none' %>">
                     <div class="form-row">
                         <div class="form-group">
                             <label for="acmeListenHost"><%= t('nodes.acmeListenHost') %></label>

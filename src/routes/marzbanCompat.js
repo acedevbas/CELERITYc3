@@ -169,7 +169,7 @@ async function _handle(req, res, next) {
     try {
         user = await HyUser
             .findOne({ userId })
-            .populate('nodes', 'active name type status onlineUsers maxOnlineUsers rankingCoefficient domain sni ip port portRange hopInterval portConfigs obfs flag xray cascadeRole groups virtual')
+            .populate('nodes', 'active name type status onlineUsers maxOnlineUsers rankingCoefficient domain sni ip port portRange hopInterval portConfigs obfs flag xray amneziawg cascadeRole groups virtual')
             .populate('groups', '_id name subscriptionTitle maxDevices');
     } catch (err) {
         logger.error(`[MarzbanCompat] Lookup failed: ${err.message}`);

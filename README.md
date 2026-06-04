@@ -10,10 +10,11 @@
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933?logo=node.js&logoColor=white)](package.json)
 [![Hysteria](https://img.shields.io/badge/Hysteria-2.x-9B59B6)](https://v2.hysteria.network/)
 [![Xray](https://img.shields.io/badge/Xray-VLESS-00ADD8)](https://xtls.github.io/)
+[![AmneziaWG](https://img.shields.io/badge/AmneziaWG-2.0-24D18F)](https://github.com/amnezia-vpn/amneziawg-go)
 [![Telegram](https://img.shields.io/badge/Telegram-Chat-2CA5E0?logo=telegram&logoColor=white)](https://t.me/+JKFdEr7TqvIyOTFi)
 [![Support](https://img.shields.io/badge/%E2%99%A5-Support-EC4899)](https://celerity.help)
 
-**C³ CELERITY** by Click Connect — modern web panel for managing [Hysteria 2](https://v2.hysteria.network/) and [Xray VLESS](https://xtls.github.io/) proxy servers with centralized authentication, one-click node setup, and flexible user-to-server group mapping.
+**C³ CELERITY** by Click Connect — modern web panel for managing [Hysteria 2](https://v2.hysteria.network/), [Xray VLESS](https://xtls.github.io/), and [AmneziaWG 2.0](https://github.com/amnezia-vpn/amneziawg-go) proxy/VPN servers with centralized authentication, one-click node setup, and flexible user-to-server group mapping.
 
 **Built for performance:** Lightweight architecture designed for speed at any scale.
 
@@ -136,9 +137,9 @@ Use `latest` for fast updates, or pin an explicit tag for predictable production
 ## ✨ Features
 
 - 🖥 **Web Panel** — Full UI for managing nodes and users
-- 🔐 **Dual Protocol** — Hysteria 2 and Xray VLESS on one panel
+- 🔐 **Multi Protocol** — Hysteria 2, Xray VLESS, and AmneziaWG 2.0 on one panel
 - 🛡️ **Panel 2FA (TOTP)** — Unified TOTP verification flow for admin login and sensitive security actions
-- 🚀 **Auto Node Setup** — Install Hysteria/Xray, certs, port hopping in one click
+- 🚀 **Auto Node Setup** — Install Hysteria/Xray/AmneziaWG, certs or protocol config, firewall rules in one click
 - 👥 **Server Groups** — Flexible user-to-node mapping
 - ⚖️ **Load Balancing** — Distribute users by server load
 - 🚫 **Traffic Filtering (ACL)** — Block ads, domains, IPs; route through custom proxies
@@ -338,6 +339,20 @@ Modern protocol with Reality support and various transports.
 | Reality | Disguise as popular site, no domain needed |
 | TLS | Classic TLS with certificate |
 | None | No encryption (not recommended) |
+
+---
+
+### AmneziaWG 2.0
+
+WireGuard-like VPN protocol with AmneziaWG 2.0 obfuscation fields (`Jc/Jmin/Jmax`,
+`S1`-`S4`, `H1`-`H4`, `I1`-`I5`) and one-click deployment via `amneziawg-go`
+plus `amneziawg-tools`. Same IP can host AmneziaWG alongside Hysteria/Xray as
+long as each real protocol uses its own port. See [AmneziaWG support](docs/amneziawg.md).
+
+Subscriptions for this protocol are served as native configs via
+`/api/files/<token>?format=amneziawg`. The browser subscription page also shows
+per-node AmneziaWG QR codes whose payload is the native `.conf`. Auto setup
+enables IPv4 forwarding/NAT for the AmneziaWG client pool.
 
 ---
 
@@ -638,7 +653,7 @@ const expected = 'sha256=' + crypto
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | String | `hysteria` or `xray` |
+| `type` | String | `hysteria`, `xray`, `amneziawg`, or `virtual` |
 | `name` | String | Display name |
 | `flag` | String | Country flag (emoji) |
 | `ip` | String | IP address |
@@ -658,6 +673,7 @@ const expected = 'sha256=' + crypto
 | `status` | String | online/offline/error/syncing |
 | `traffic` | Object | `{ tx, rx, lastUpdate }` — node traffic |
 | `xray` | Object | Xray settings (see below) |
+| `amneziawg` | Object | AmneziaWG 2.0 settings (see docs/amneziawg.md) |
 
 #### Xray Settings (node.xray)
 

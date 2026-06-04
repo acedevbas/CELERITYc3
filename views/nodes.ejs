@@ -106,13 +106,15 @@
                                     <strong><%= node.name %></strong>
                                     <% if (node.type === 'xray') { %>
                                     <img src="/img/xray.svg" alt="Xray" title="Xray VLESS" style="width:16px;height:16px;vertical-align:middle;margin-left:6px;opacity:0.7;">
+                                    <% } else if (node.type === 'amneziawg') { %>
+                                    <img src="/img/amneziawg.svg" alt="AmneziaWG" title="AmneziaWG 2.0" style="width:16px;height:16px;vertical-align:middle;margin-left:6px;opacity:0.7;">
                                     <% } else if (node.type === 'virtual') { %>
                                     <i class="ti ti-route" title="Virtual / Balancer" style="font-size:16px;vertical-align:middle;margin-left:6px;opacity:0.7;"></i>
                                     <% } else { %>
                                     <img src="/img/hysteria.svg" alt="Hysteria" title="Hysteria 2" style="width:16px;height:16px;vertical-align:middle;margin-left:6px;opacity:0.7;">
                                     <% } %>
                                     <% if (node.type !== 'virtual' && (ipProtocolCount || {})[node.ip] > 1) { %>
-                                    <span class="badge-cascade relay" title="<%= t('nodes.dualProtocol') %>"><i class="ti ti-layers-subtract" style="font-size:10px;"></i> dual</span>
+                                    <span class="badge-cascade relay" title="<%= t('nodes.dualProtocol') %>"><i class="ti ti-layers-subtract" style="font-size:10px;"></i> <%= (ipProtocolCount || {})[node.ip] %> proto</span>
                                     <% } %>
                                     <% if (node.cascadeRole && node.cascadeRole !== 'standalone') { %>
                                     <span class="badge-cascade <%= node.cascadeRole %>"><%= node.cascadeRole.toUpperCase() %></span>
@@ -142,7 +144,7 @@
                             <% } else { %>
                                 <code><%= node.port %></code>
                             <% } %>
-                            <% if (node.type !== 'virtual' && node.portRange) { %>
+                            <% if (node.type === 'hysteria' && node.portRange) { %>
                             <br><small class="text-muted">hop: <%= node.portRange %></small>
                             <% } %>
                         </td>
@@ -202,7 +204,7 @@
                                     <a href="/panel/nodes/<%= node._id %>/terminal" class="btn-icon" title="<%= t('nodes.terminal') %>" <%= !node.ssh?.password ? 'style="pointer-events:none;opacity:0.5"' : '' %>><i class="ti ti-terminal-2"></i></a>
                                 <% } %>
                                 <a href="/panel/nodes/<%= node._id %>" class="btn-icon" title="<%= t('common.edit') %>"><i class="ti ti-pencil"></i></a>
-                                <% if (node.type !== 'virtual' && (ipProtocolCount || {})[node.ip] < 2) { %>
+                                <% if (node.type !== 'virtual' && (ipProtocolCount || {})[node.ip] < 3) { %>
                                 <a href="/panel/nodes/add?cloneFrom=<%= node._id %>" class="btn-icon" title="<%= t('nodes.addPairedProtocol') %>"><i class="ti ti-plug-connected"></i></a>
                                 <% } %>
                                 <button class="btn-icon btn-icon-danger" onclick="deleteNode('<%= node._id %>')" title="<%= t('common.delete') %>"><i class="ti ti-trash"></i></button>
@@ -237,6 +239,8 @@
                             <strong><%= node.name %></strong>
                             <% if (node.type === 'xray') { %>
                             <img src="/img/xray.svg" alt="Xray" title="Xray VLESS" style="width:14px;height:14px;vertical-align:middle;opacity:0.7;">
+                            <% } else if (node.type === 'amneziawg') { %>
+                            <img src="/img/amneziawg.svg" alt="AmneziaWG" title="AmneziaWG 2.0" style="width:14px;height:14px;vertical-align:middle;opacity:0.7;">
                             <% } else { %>
                             <img src="/img/hysteria.svg" alt="Hysteria" title="Hysteria 2" style="width:14px;height:14px;vertical-align:middle;opacity:0.7;">
                             <% } %>

@@ -10,6 +10,7 @@ const HyUser = require('../../models/hyUserModel');
 const cache = require('../../services/cacheService');
 const cryptoService = require('../../services/cryptoService');
 const logger = require('../../utils/logger');
+const amneziawgService = require('../../services/amneziawgService');
 
 async function invalidateNodesCache() {
     await cache.invalidateNodes();
@@ -27,7 +28,7 @@ const sshSessions = new Map();
 // Fields excluded from all node queries returned to MCP clients. Keep the
 // explicit sanitizer below as a second guard for nested arrays and populated
 // documents where select() exclusions can be easy to miss.
-const NODE_SAFE_SELECT = '-ssh.password -ssh.privateKey -obfs.password -xray.realityPrivateKey -xray.agentToken -xray.extraInbounds.realityPrivateKey -statsSecret';
+const NODE_SAFE_SELECT = '-ssh.password -ssh.privateKey -obfs.password -xray.realityPrivateKey -xray.agentToken -xray.extraInbounds.realityPrivateKey -amneziawg.privateKey -statsSecret';
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
@@ -47,12 +48,12 @@ const manageNodeSchema = z.object({
     id: z.string().optional().describe('Node MongoDB _id (required for all except create)'),
     data: z.object({
         name: z.string().optional(),
-        ip: z.string().optional().describe('IPv4/IPv6 of the host (required for hysteria/xray; ignored for virtual)'),
+        ip: z.string().optional().describe('IPv4/IPv6 of the host (required for real protocol nodes; ignored for virtual)'),
         domain: z.string().optional(),
         sni: z.string().optional(),
         port: z.number().optional(),
         portRange: z.string().optional(),
-        type: z.enum(['hysteria', 'xray', 'virtual']).optional().describe('Node type. "virtual" is a load-balancer entry (HAPP/Xray-core balancer + Singbox/Clash url-test/load-balance group) without its own remote server'),
+        type: z.enum(['hysteria', 'xray', 'amneziawg', 'virtual']).optional().describe('Node type. "virtual" is a load-balancer entry without its own remote server'),
         groups: z.array(z.string()).optional(),
         active: z.boolean().optional(),
         country: z.string().optional(),
@@ -161,6 +162,7 @@ const manageNodeSchema = z.object({
         useTlsFiles: z.boolean().optional().describe('Whether to use TLS cert/key files instead of ACME'),
         initScript: z.string().optional().describe('Bash script executed before auto-setup via SSH'),
         xray: z.record(z.unknown()).optional().describe('Xray VLESS settings; merged by the panel as a whole xray object'),
+        amneziawg: z.record(z.unknown()).optional().describe('AmneziaWG 2.0 settings; merged as a whole amneziawg object'),
         antiDpi: z.object({
             rotateRealityTarget: z.boolean().optional().describe('Rotate the main REALITY target to a known TLS 1.3/H2 website'),
             includeXhttp: z.boolean().optional().describe('Add/update an XHTTP+REALITY backup inbound'),
@@ -233,6 +235,10 @@ function sanitizeNodeForMcp(node) {
         }
     }
 
+    if (raw.amneziawg) {
+        delete raw.amneziawg.privateKey;
+    }
+
     return raw;
 }
 
@@ -261,6 +267,12 @@ async function queryNodes(args) {
                 const syncService = getSyncService();
                 const users = await syncService._getUsersForNode(fullNode);
                 result.config = configGenerator.generateXrayConfig(fullNode, users);
+            } else if (node.type === 'amneziawg') {
+                const fullNode = await HyNode.findById(parsed.id).select('+amneziawg.privateKey').populate('groups', 'name color');
+                const syncService = getSyncService();
+                const users = await syncService._getUsersForNode(fullNode);
+                await amneziawgService.ensureUsersPeerMaterial(users, { clientCidr: fullNode.amneziawg?.clientCidr });
+                result.config = configGenerator.generateAmneziawgServerConfig(fullNode, users);
             } else {
                 result.config = configGenerator.generateNodeConfig(node, `${baseUrl}/api/auth`);
             }
@@ -289,7 +301,7 @@ async function manageNode(args, emit) {
             const nodeType = data.type || 'hysteria';
 
             if (nodeType !== 'virtual' && !data.ip) {
-                throw new Error('ip is required for hysteria and xray nodes');
+                throw new Error('ip is required for real protocol nodes');
             }
 
             // Validate virtual-specific fields up-front so the caller gets a
@@ -359,6 +371,12 @@ async function manageNode(args, emit) {
                     },
                 };
             }
+            if (nodeType === 'amneziawg') {
+                nodeData.amneziawg = data.amneziawg || {};
+                const keys = amneziawgService.ensureNodeKeys(nodeData);
+                nodeData.amneziawg.privateKey = keys.privateKey;
+                nodeData.amneziawg.publicKey = keys.publicKey;
+            }
 
             const hy2Keys = [
                 'hopInterval', 'acme', 'masquerade', 'bandwidth',
@@ -379,7 +397,7 @@ async function manageNode(args, emit) {
             if (!id) throw new Error('id is required for update');
             const allowed = [
                 'name', 'domain', 'sni', 'port', 'portRange', 'groups', 'active', 'country', 'cascadeRole', 'type',
-                'virtual', 'xray',
+                'virtual', 'xray', 'amneziawg',
                 'hopInterval', 'acme', 'masquerade', 'bandwidth',
                 'ignoreClientBandwidth', 'speedTest', 'disableUDP',
                 'udpIdleTimeout', 'sniff', 'quic', 'resolver', 'acl', 'aclRules', 'useTlsFiles',
@@ -392,7 +410,7 @@ async function manageNode(args, emit) {
 
             // findByIdAndUpdate skips pre('validate') hooks, so re-implement
             // type-aware invariants here. Mirror the behaviour of routes/nodes.js PUT.
-            const existing = await HyNode.findById(id).select('type ip virtual').lean();
+            const existing = await HyNode.findById(id).select('type ip virtual amneziawg +amneziawg.privateKey').lean();
             if (!existing) return { error: `Node '${id}' not found`, code: 404 };
 
             const nextType = updates.type || existing.type;
@@ -410,6 +428,13 @@ async function manageNode(args, emit) {
                 updates.ip = null;
             } else if (!nextIp) {
                 return { error: `Node type ${nextType} requires ip`, code: 400 };
+            }
+
+            if (nextType === 'amneziawg' && updates.amneziawg) {
+                updates.amneziawg = { ...(existing.amneziawg || {}), ...updates.amneziawg };
+                const keys = amneziawgService.ensureNodeKeys({ amneziawg: updates.amneziawg });
+                updates.amneziawg.privateKey = keys.privateKey;
+                updates.amneziawg.publicKey = keys.publicKey;
             }
 
             const node = await HyNode.findByIdAndUpdate(id, { $set: updates }, { new: true })
@@ -443,7 +468,8 @@ async function manageNode(args, emit) {
             if (probe.type === 'virtual') {
                 return { error: 'Virtual nodes have no remote service to sync', code: 400 };
             }
-            const node = await HyNode.findByIdAndUpdate(id, { $set: { status: 'syncing' } }, { new: true });
+            const node = await HyNode.findByIdAndUpdate(id, { $set: { status: 'syncing' } }, { new: true })
+                .select('+amneziawg.privateKey');
             if (!node) return { error: `Node '${id}' not found`, code: 404 };
             getSyncService().updateNodeConfig(node).catch(err => {
                 logger.error(`[MCP] Sync error for ${node.name}: ${err.message}`);
@@ -474,13 +500,22 @@ async function manageNode(args, emit) {
             let result;
             if (node.type === 'xray') {
                 result = await nodeSetup.setupXrayNode(node, { restartService: opts.restartService });
+            } else if (node.type === 'amneziawg') {
+                const syncService = getSyncService();
+                const users = await syncService._getUsersForNode(node);
+                await amneziawgService.ensureUsersPeerMaterial(users, { clientCidr: node.amneziawg?.clientCidr });
+                result = await nodeSetup.setupAmneziawgNode(node, {
+                    installAmneziawg: opts.installHysteria,
+                    restartService: opts.restartService,
+                    users,
+                });
             } else {
                 result = await nodeSetup.setupNode(node, opts);
             }
 
             if (result.success) {
                 const updateFields = { status: 'online', lastSync: new Date(), lastError: '', healthFailures: 0 };
-                if (node.type !== 'xray') updateFields.useTlsFiles = result.useTlsFiles;
+                if (node.type === 'hysteria') updateFields.useTlsFiles = result.useTlsFiles;
                 await HyNode.findByIdAndUpdate(id, { $set: updateFields });
                 await invalidateNodesCache();
                 logger.info(`[MCP] Setup completed for ${node.name}`);
@@ -505,7 +540,7 @@ async function manageNode(args, emit) {
 
         case 'update_config': {
             if (!id) throw new Error('id is required for update_config');
-            const node = await HyNode.findById(id);
+            const node = await HyNode.findById(id).select('+amneziawg.privateKey');
             if (!node) return { error: `Node '${id}' not found`, code: 404 };
             if (node.type === 'virtual') {
                 return { error: 'Virtual nodes have no remote service to push config to', code: 400 };

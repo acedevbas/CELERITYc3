@@ -10,6 +10,7 @@ const config = require('../../config');
 const cryptoService = require('./cryptoService');
 const Settings = require('../models/settingsModel');
 const configGenerator = require('./configGenerator');
+const amneziawgService = require('./amneziawgService');
 
 /**
  * Check if a node is on the same VPS as the panel
@@ -736,6 +737,194 @@ async function getNodeLogs(node, lines = 50) {
         
         try {
             const result = await execSSH(conn, `journalctl -u hysteria-server -n ${lines} --no-pager`);
+            return { success: true, logs: result.output };
+        } finally {
+            conn.end();
+        }
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+}
+
+// ==================== AMNEZIAWG SETUP ====================
+
+const AMNEZIAWG_INSTALL_SCRIPT = `#!/bin/bash
+set -e
+
+echo "=== [1/5] Installing AmneziaWG userspace stack ==="
+if command -v apt-get &> /dev/null; then
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y curl unzip git make gcc golang-go iproute2 iptables
+elif command -v yum &> /dev/null; then
+    yum install -y curl unzip git make gcc golang iproute iptables
+elif command -v dnf &> /dev/null; then
+    dnf install -y curl unzip git make gcc golang iproute iptables
+elif command -v apk &> /dev/null; then
+    apk add --no-cache curl unzip git make gcc musl-dev go iproute2 iptables
+else
+    echo "ERROR: unsupported package manager. Install curl/unzip/git/make/gcc/go manually."
+    exit 1
+fi
+
+if ! command -v awg &> /dev/null || ! command -v awg-quick &> /dev/null; then
+    echo "Installing amneziawg-tools release binaries..."
+    TMPDIR=$(mktemp -d)
+    curl -fsSL https://github.com/amnezia-vpn/amneziawg-tools/releases/download/v1.0.20260223/ubuntu-22.04-amneziawg-tools.zip -o "$TMPDIR/awg-tools.zip"
+    unzip -q "$TMPDIR/awg-tools.zip" -d "$TMPDIR"
+    install -m 0755 "$TMPDIR"/ubuntu-22.04-amneziawg-tools/awg /usr/local/bin/awg
+    install -m 0755 "$TMPDIR"/ubuntu-22.04-amneziawg-tools/awg-quick /usr/local/bin/awg-quick
+    ln -sf /usr/local/bin/awg /usr/bin/awg
+    ln -sf /usr/local/bin/awg-quick /usr/bin/awg-quick
+    rm -rf "$TMPDIR"
+else
+    echo "Done: awg/awg-quick already installed"
+fi
+
+if ! command -v amneziawg-go &> /dev/null; then
+    echo "Building amneziawg-go from official GitHub source..."
+    TMPDIR=$(mktemp -d)
+    git clone --depth 1 https://github.com/amnezia-vpn/amneziawg-go "$TMPDIR/amneziawg-go"
+    make -C "$TMPDIR/amneziawg-go"
+    install -m 0755 "$TMPDIR/amneziawg-go/amneziawg-go" /usr/local/bin/amneziawg-go
+    ln -sf /usr/local/bin/amneziawg-go /usr/bin/amneziawg-go
+    rm -rf "$TMPDIR"
+else
+    echo "Done: amneziawg-go already installed"
+fi
+
+mkdir -p /etc/wireguard
+chmod 700 /etc/wireguard
+cat >/etc/sysctl.d/99-amneziawg.conf <<'SYSCTL'
+net.ipv4.ip_forward=1
+SYSCTL
+sysctl -w net.ipv4.ip_forward=1 >/dev/null || true
+
+cat >/etc/systemd/system/awg-quick@.service <<'UNIT'
+[Unit]
+Description=AmneziaWG via awg-quick for %i
+After=network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=WG_QUICK_USERSPACE_IMPLEMENTATION=/usr/local/bin/amneziawg-go
+ExecStart=/usr/local/bin/awg-quick up %i
+ExecStop=/usr/local/bin/awg-quick down %i
+ExecReload=/bin/bash -lc '/usr/local/bin/awg syncconf %i <(/usr/local/bin/awg-quick strip %i)'
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+echo "Done: AmneziaWG stack ready"
+`;
+
+async function setupAmneziawgNode(node, options = {}) {
+    const { installAmneziawg = true, restartService = true, users = [] } = options;
+    const logs = [];
+    const log = (msg) => {
+        const line = `[${new Date().toISOString()}] ${msg}`;
+        logs.push(line);
+        logger.info(`[AmneziaWGSetup] ${msg}`);
+    };
+
+    log(`Starting AmneziaWG setup for ${node.name} (${node.ip})`);
+
+    let conn;
+    try {
+        conn = await connectSSH(node);
+        log('SSH connected');
+
+        await runInitScript(conn, node, log, logs);
+
+        if (installAmneziawg) {
+            const installResult = await execSSH(conn, AMNEZIAWG_INSTALL_SCRIPT);
+            logs.push(installResult.output);
+            if (!installResult.success) {
+                throw new Error(`AmneziaWG installation failed: ${installResult.error}`);
+            }
+            log('AmneziaWG stack installed');
+        }
+
+        const cfg = amneziawgService.normalizeConfig(node.amneziawg || {});
+        const interfaceName = cfg.interfaceName;
+        const listenPort = node.port || 51820;
+        const configPath = `/etc/wireguard/${interfaceName}.conf`;
+        const serverConfig = configGenerator.generateAmneziawgServerConfig(node, users);
+
+        await execSSH(conn, 'mkdir -p /etc/wireguard && chmod 700 /etc/wireguard');
+        await uploadFile(conn, serverConfig, configPath);
+        await execSSH(conn, `chmod 600 ${configPath}`);
+        log(`Config uploaded to ${configPath}`);
+        logs.push('--- Config content ---');
+        logs.push(serverConfig.replace(/PrivateKey = .+/g, 'PrivateKey = ***').replace(/PresharedKey = .+/g, 'PresharedKey = ***'));
+        logs.push('--- End config ---');
+
+        const firewallResult = await execSSH(conn, `
+if command -v iptables &> /dev/null; then
+    iptables -C INPUT -p udp --dport ${listenPort} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${listenPort} -j ACCEPT
+    ip6tables -C INPUT -p udp --dport ${listenPort} -j ACCEPT 2>/dev/null || ip6tables -I INPUT -p udp --dport ${listenPort} -j ACCEPT 2>/dev/null || true
+fi
+if command -v ufw &> /dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+    ufw allow ${listenPort}/udp 2>/dev/null || true
+fi
+${IPTABLES_SAVE_SNIPPET}
+echo "Done: UDP port ${listenPort} opened"
+        `);
+        logs.push(firewallResult.output);
+        log(`Firewall UDP port ${listenPort} opened`);
+
+        if (restartService) {
+            const restartResult = await execSSH(conn, `
+systemctl enable awg-quick@${interfaceName}
+systemctl restart awg-quick@${interfaceName}
+sleep 2
+systemctl status awg-quick@${interfaceName} --no-pager -l || true
+awg show ${interfaceName} || true
+            `);
+            logs.push(restartResult.output);
+            if (!restartResult.success) {
+                throw new Error(`AmneziaWG service restart failed: ${restartResult.error}`);
+            }
+            log('AmneziaWG service restarted');
+        }
+
+        if (node.initScript) {
+            await Settings.update({ lastInitScript: node.initScript }).catch(() => {});
+        }
+
+        return { success: true, logs, amneziawgKeys: { publicKey: node.amneziawg?.publicKey || '' } };
+    } catch (error) {
+        log(`Error: ${error.message}`);
+        return { success: false, error: error.message, logs };
+    } finally {
+        if (conn) conn.end();
+    }
+}
+
+async function checkAmneziawgNodeStatus(node) {
+    try {
+        const conn = await connectSSH(node);
+        try {
+            const cfg = amneziawgService.normalizeConfig(node.amneziawg || {});
+            const result = await execSSH(conn, `systemctl is-active awg-quick@${cfg.interfaceName}`);
+            return result.output.trim() === 'active' ? 'online' : 'offline';
+        } finally {
+            conn.end();
+        }
+    } catch (_) {
+        return 'error';
+    }
+}
+
+async function getAmneziawgNodeLogs(node, lines = 50) {
+    try {
+        const conn = await connectSSH(node);
+        try {
+            const cfg = amneziawgService.normalizeConfig(node.amneziawg || {});
+            const result = await execSSH(conn, `journalctl -u awg-quick@${cfg.interfaceName} -n ${lines} --no-pager`);
             return { success: true, logs: result.output };
         } finally {
             conn.end();
@@ -1642,6 +1831,9 @@ module.exports = {
     connectSSH,
     execSSH,
     uploadFile,
+    setupAmneziawgNode,
+    checkAmneziawgNodeStatus,
+    getAmneziawgNodeLogs,
     setupXrayNode,
     setupXrayNodeWithAgent,
     installCCAgent,

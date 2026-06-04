@@ -26,6 +26,7 @@ const config = require('../../config');
 const webhook = require('./webhookService');
 const nodeSetup = require('./nodeSetup');
 const { getPanelCertificates, isSameVpsAsPanel } = nodeSetup;
+const amneziawgService = require('./amneziawgService');
 
 // HTTPS agent that ignores self-signed certs (agent uses self-signed cert by default)
 const selfSignedAgent = new https.Agent({ rejectUnauthorized: false });
@@ -47,6 +48,8 @@ const CONFIG_AFFECTING_FIELDS = new Set([
     'sniff', 'quic', 'resolver', 'acl', 'aclRules', 'outbounds', 'useTlsFiles',
     // Xray (any xray.* sub-path triggers regeneration)
     'xray',
+    // AmneziaWG (any amneziawg.* sub-path triggers peer config regeneration)
+    'amneziawg',
 ]);
 
 function hasConfigRelevantUpdates(updates) {
@@ -86,6 +89,18 @@ async function ensureManualKeyLoaded(node) {
         }
     } catch (err) {
         logger.warn(`[Sync] Failed to lazy-load manualKey for node ${node.name || node._id}: ${err.message}`);
+    }
+}
+
+async function ensureAmneziawgPrivateKeyLoaded(node) {
+    if (node?.type !== 'amneziawg') return;
+    if (node.amneziawg?.privateKey) return;
+    try {
+        const fresh = await HyNode.findById(node._id).select('+amneziawg.privateKey').lean();
+        const key = fresh?.amneziawg?.privateKey || '';
+        if (key) node.amneziawg.privateKey = key;
+    } catch (err) {
+        logger.warn(`[Sync] Failed to lazy-load AmneziaWG privateKey for node ${node.name || node._id}: ${err.message}`);
     }
 }
 
@@ -383,7 +398,9 @@ class SyncService {
     async _getUsersForNode(node) {
         const nodeId = node._id.toString();
         // Users with explicit node assignment
-        const byNodes = await HyUser.find({ nodes: node._id, enabled: true }).lean();
+        const byNodes = await HyUser.find({ nodes: node._id, enabled: true })
+            .select('+amneziawg.privateKey +amneziawg.presharedKey')
+            .lean();
         // Users linked via groups
         const nodeGroupIds = (node.groups || []).map(g => g._id?.toString() || g.toString());
         const noExplicitNodes = {
@@ -394,10 +411,14 @@ class SyncService {
         };
         let byGroups = [];
         if (nodeGroupIds.length > 0) {
-            byGroups = await HyUser.find({ groups: { $in: node.groups }, enabled: true, ...noExplicitNodes }).lean();
+            byGroups = await HyUser.find({ groups: { $in: node.groups }, enabled: true, ...noExplicitNodes })
+                .select('+amneziawg.privateKey +amneziawg.presharedKey')
+                .lean();
         } else {
             // Node has no groups — all users without group assignment
-            byGroups = await HyUser.find({ enabled: true, groups: { $size: 0 }, ...noExplicitNodes }).lean();
+            byGroups = await HyUser.find({ enabled: true, groups: { $size: 0 }, ...noExplicitNodes })
+                .select('+amneziawg.privateKey +amneziawg.presharedKey')
+                .lean();
         }
         // Merge and deduplicate by userId
         const seen = new Set();
@@ -441,6 +462,23 @@ class SyncService {
         const xrayNodes = await HyNode.find({ type: 'xray', active: true });
         for (const node of xrayNodes) {
             this.removeXrayUser(node, user).catch(() => {});
+        }
+    }
+
+    async addUserToAllAmneziawgNodes(user) {
+        const nodes = await HyNode.find({ type: 'amneziawg', active: true }).select('+amneziawg.privateKey');
+        for (const node of nodes) {
+            const nodeUsers = await this._getUsersForNode(node);
+            if (nodeUsers.some(u => u.userId === user.userId)) {
+                this.updateAmneziawgNodeConfig(node).catch(() => {});
+            }
+        }
+    }
+
+    async removeUserFromAllAmneziawgNodes() {
+        const nodes = await HyNode.find({ type: 'amneziawg', active: true }).select('+amneziawg.privateKey');
+        for (const node of nodes) {
+            this.updateAmneziawgNodeConfig(node).catch(() => {});
         }
     }
 
@@ -755,6 +793,9 @@ class SyncService {
         if (node.type === 'xray') {
             return this.updateXrayNodeConfig(node);
         }
+        if (node.type === 'amneziawg') {
+            return this.updateAmneziawgNodeConfig(node);
+        }
         return this._updateHysteriaNodeConfig(node);
     }
 
@@ -777,7 +818,7 @@ class SyncService {
         if (!hasConfigRelevantUpdates(updates)) return;
         setImmediate(async () => {
             try {
-                const node = await HyNode.findById(nodeId);
+                const node = await HyNode.findById(nodeId).select('+xray.manualKey +amneziawg.privateKey');
                 if (!node || !node.active) return;
                 if (node.cascadeRole === 'bridge') return;
 
@@ -790,6 +831,62 @@ class SyncService {
                 logger.warn(`[AutoPush] node ${nodeId}: ${error.message}`);
             }
         });
+    }
+
+    async updateAmneziawgNodeConfig(node) {
+        logger.info(`[AmneziaWG Sync] Updating config for node ${node.name} (${node.ip})`);
+        await HyNode.updateOne({ _id: node._id }, { $set: { status: 'syncing' } });
+
+        const ssh = new NodeSSH(node);
+        try {
+            await ensureAmneziawgPrivateKeyLoaded(node);
+            const cfg = amneziawgService.normalizeConfig(node.amneziawg || {});
+            const users = await this._getUsersForNode(node);
+            await amneziawgService.ensureUsersPeerMaterial(users, { clientCidr: cfg.clientCidr });
+            amneziawgService.ensureNodeKeys(node);
+            await HyNode.updateOne({ _id: node._id }, {
+                $set: {
+                    'amneziawg.privateKey': node.amneziawg.privateKey,
+                    'amneziawg.publicKey': node.amneziawg.publicKey,
+                },
+            });
+
+            const configContent = configGenerator.generateAmneziawgServerConfig(node, users);
+            const configPath = `/etc/wireguard/${cfg.interfaceName}.conf`;
+
+            await ssh.connect();
+            await ssh.uploadContent(configContent, configPath);
+            await ssh.exec(`chmod 600 ${configPath}`);
+
+            let reload = await ssh.exec(`systemctl reload awg-quick@${cfg.interfaceName}`);
+            if (reload.code !== 0) {
+                reload = await ssh.exec(`systemctl restart awg-quick@${cfg.interfaceName}`);
+            }
+            const status = await ssh.exec(`systemctl is-active awg-quick@${cfg.interfaceName} 2>/dev/null || true`);
+            const online = status.stdout.trim() === 'active';
+
+            await HyNode.updateOne({ _id: node._id }, {
+                $set: {
+                    status: online ? 'online' : 'error',
+                    lastSync: new Date(),
+                    lastError: online ? '' : (reload.stderr || reload.stdout || 'AmneziaWG service is not active').trim(),
+                    healthFailures: 0,
+                },
+            });
+            await invalidateNodesCache();
+            logger.info(`[AmneziaWG Sync] Node ${node.name}: config updated with ${users.length} peer(s)`);
+            return online;
+        } catch (error) {
+            logger.error(`[AmneziaWG Sync] Node ${node.name} error: ${error.message}`);
+            await HyNode.updateOne({ _id: node._id }, {
+                $set: { status: 'error', lastError: error.message, healthFailures: 0 },
+            });
+            await invalidateNodesCache();
+            webhook.emit(webhook.EVENTS.NODE_ERROR, { nodeId: node._id, name: node.name, error: error.message });
+            return false;
+        } finally {
+            ssh.disconnect();
+        }
     }
 
     /**
@@ -900,7 +997,7 @@ class SyncService {
         logger.info('[Sync] Starting sync for all nodes');
         
         try {
-            const nodes = await HyNode.find({ active: true });
+            const nodes = await HyNode.find({ active: true }).select('+amneziawg.privateKey');
             
             // Parallel sync with concurrency limit
             const CONCURRENCY = 5;
@@ -931,7 +1028,74 @@ class SyncService {
         if (node.type === 'xray') {
             return this.collectXrayTrafficStats(node);
         }
+        if (node.type === 'amneziawg') {
+            return this.collectAmneziawgTrafficStats(node);
+        }
         return this._collectHysteriaTrafficStats(node);
+    }
+
+    async collectAmneziawgTrafficStats(node) {
+        const ssh = new NodeSSH(node);
+        try {
+            const cfg = amneziawgService.normalizeConfig(node.amneziawg || {});
+            await ssh.connect();
+            const result = await ssh.exec(`awg show ${cfg.interfaceName} dump 2>/dev/null || true`);
+            if (!result.stdout.trim()) return;
+
+            const users = await this._getUsersForNode(node);
+            await amneziawgService.ensureUsersPeerMaterial(users, { clientCidr: cfg.clientCidr });
+            const userByPublicKey = new Map(users.map(u => [u.amneziawg?.publicKey, u]).filter(([key]) => key));
+            const previous = node.settings?.amneziawgTransfer || {};
+            const next = {};
+            let nodeRx = 0;
+            let nodeTx = 0;
+            const bulkOps = [];
+            const now = new Date();
+
+            for (const line of result.stdout.trim().split('\n').slice(1)) {
+                const cols = line.split('\t');
+                const publicKey = cols[0];
+                const rx = parseInt(cols[5], 10) || 0;
+                const tx = parseInt(cols[6], 10) || 0;
+                next[publicKey] = { rx, tx };
+                const user = userByPublicKey.get(publicKey);
+                if (!user) continue;
+                const prev = previous[publicKey] || {};
+                const deltaRx = Math.max(0, rx - (prev.rx || 0));
+                const deltaTx = Math.max(0, tx - (prev.tx || 0));
+                if (deltaRx === 0 && deltaTx === 0) continue;
+                nodeRx += deltaRx;
+                nodeTx += deltaTx;
+                bulkOps.push({
+                    updateOne: {
+                        filter: { _id: user._id },
+                        update: {
+                            $inc: { 'traffic.rx': deltaRx, 'traffic.tx': deltaTx },
+                            $set: { 'traffic.lastUpdate': now },
+                        },
+                    },
+                });
+            }
+
+            if (bulkOps.length > 0) {
+                await HyUser.bulkWrite(bulkOps, { ordered: false });
+                this.enforceTrafficLimit(users.map(u => u.userId)).catch(() => {});
+            }
+            await HyNode.updateOne({ _id: node._id }, {
+                $inc: { 'traffic.rx': nodeRx, 'traffic.tx': nodeTx },
+                $set: {
+                    'traffic.lastUpdate': now,
+                    'settings.amneziawgTransfer': next,
+                    lastError: '',
+                    healthFailures: 0,
+                },
+            });
+            logger.info(`[AmneziaWG Stats] ${node.name}: ${bulkOps.length} users, traffic: ↑${(nodeTx / 1024 / 1024).toFixed(1)}MB ↓${(nodeRx / 1024 / 1024).toFixed(1)}MB`);
+        } catch (error) {
+            logger.error(`[AmneziaWG Stats] ${node.name} error: ${error.message}`);
+        } finally {
+            ssh.disconnect();
+        }
     }
 
     /**
@@ -1015,7 +1179,45 @@ class SyncService {
         if (node.type === 'xray') {
             return this.getXrayOnlineUsers(node);
         }
+        if (node.type === 'amneziawg') {
+            return this.getAmneziawgOnlineUsers(node);
+        }
         return this._getHysteriaOnlineUsers(node);
+    }
+
+    async getAmneziawgOnlineUsers(node) {
+        const ssh = new NodeSSH(node);
+        try {
+            const cfg = amneziawgService.normalizeConfig(node.amneziawg || {});
+            await ssh.connect();
+            const result = await ssh.exec(`awg show ${cfg.interfaceName} dump 2>/dev/null || true`);
+            const nowSec = Math.floor(Date.now() / 1000);
+            let count = 0;
+            for (const line of result.stdout.trim().split('\n').slice(1)) {
+                const cols = line.split('\t');
+                const latestHandshake = parseInt(cols[4], 10) || 0;
+                if (latestHandshake > 0 && nowSec - latestHandshake <= 180) count++;
+            }
+            await HyNode.updateOne({ _id: node._id }, {
+                $set: { onlineUsers: count, status: 'online', lastError: '', healthFailures: 0 },
+                $max: { maxOnlineUsers: count },
+            });
+            return count;
+        } catch (error) {
+            const prevNode = await HyNode.findById(node._id).select('healthFailures status').lean().catch(() => null);
+            const failures = (prevNode?.healthFailures || 0) + 1;
+            await HyNode.updateOne({ _id: node._id }, {
+                $inc: { healthFailures: 1 },
+                $set: { lastError: `AmneziaWG: ${error.message}` },
+            });
+            if (failures >= HEALTH_FAILURE_THRESHOLD && prevNode?.status === 'online') {
+                await HyNode.updateOne({ _id: node._id }, { $set: { status: 'offline', onlineUsers: 0 } });
+                await invalidateNodesCache();
+            }
+            return 0;
+        } finally {
+            ssh.disconnect();
+        }
     }
 
     /**

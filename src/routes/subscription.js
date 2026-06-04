@@ -1,5 +1,5 @@
 /**
- * Subscription API (Hysteria 2 + VLESS)
+ * Subscription API (Hysteria 2 + VLESS + AmneziaWG)
  * 
  * Single route /api/files/:token:
  * - Browser → HTML page
@@ -10,6 +10,7 @@
 
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const QRCode = require('qrcode');
 const HyUser = require('../models/hyUserModel');
 const HyNode = require('../models/hyNodeModel');
@@ -21,6 +22,7 @@ const uaStats = require('../services/uaStatsService');
 const { extractHwidHeaders } = require('../utils/hwidHeaders');
 const hwidDeviceService = require('../services/hwidDeviceService');
 const webhookService = require('../services/webhookService');
+const amneziawgService = require('../services/amneziawgService');
 
 const CUSTOM_GEOSITE_RULESETS = {
     // ITDog keeps this list updated for Russian resources available only
@@ -73,7 +75,8 @@ async function getUserByToken(token) {
             { userId: token }
         ]
     })
-        .populate('nodes', 'active name type status onlineUsers maxOnlineUsers rankingCoefficient domain sni ip port portRange hopInterval portConfigs obfs flag xray cascadeRole groups virtual')
+        .select('+amneziawg.privateKey +amneziawg.presharedKey')
+        .populate('nodes', 'active name type status onlineUsers maxOnlineUsers rankingCoefficient domain sni ip port portRange hopInterval portConfigs obfs flag xray amneziawg cascadeRole groups virtual')
         .populate('groups', '_id name subscriptionTitle maxDevices');
     
     return user;
@@ -107,9 +110,9 @@ async function getActiveNodesWithCache() {
     const cached = await cache.getActiveNodes();
     if (cached) return cached;
 
-    // Include type, xray, obfs, and cascadeRole fields needed for URI generation and filtering
+    // Include protocol-specific fields needed for URI/config generation and filtering
     const nodes = await HyNode.find({ active: true })
-        .select('name type flag ip domain sni port portRange hopInterval portConfigs obfs active status onlineUsers maxOnlineUsers rankingCoefficient groups xray cascadeRole virtual')
+        .select('name type flag ip domain sni port portRange hopInterval portConfigs obfs active status onlineUsers maxOnlineUsers rankingCoefficient groups xray amneziawg cascadeRole virtual')
         .lean();
     await cache.setActiveNodes(nodes);
     return nodes;
@@ -1749,6 +1752,18 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                     });
                 }
             });
+        } else if (node.type === 'amneziawg') {
+            try {
+                allConfigs.push({
+                    location: node.name,
+                    flag: node.flag || '🌐',
+                    name: 'AmneziaWG',
+                    type: 'amneziawg',
+                    uri: amneziawgService.generateClientConfig(user, node),
+                });
+            } catch (err) {
+                logger.warn(`[Sub] AmneziaWG HTML config skipped for ${node.name}: ${err.message}`);
+            }
         } else {
             getNodeConfigs(node).forEach(cfg => {
                 allConfigs.push({
@@ -1777,13 +1792,39 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         locations.get(cfg.location).configs.push({ name: cfg.name, uri: cfg.uri });
     });
 
+    function escAttr(s) {
+        return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function escHtml(s) {
+        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    async function buildQrDataUrl(value, cacheKey, options = {}) {
+        let qrDataUrl = await cache.getQR(cacheKey);
+        if (qrDataUrl) return qrDataUrl;
+        try {
+            qrDataUrl = await QRCode.toDataURL(value, {
+                width: options.width || 240,
+                margin: options.margin ?? 1,
+                errorCorrectionLevel: options.errorCorrectionLevel || 'M',
+                color: options.color || { dark: '#000000', light: '#ffffff' },
+            });
+            await cache.setQR(cacheKey, qrDataUrl);
+            return qrDataUrl;
+        } catch (e) {
+            logger.warn(`[Sub] QR generation failed: ${e.message}`);
+            return '';
+        }
+    }
+
     // Customization from settings
     const sub = settings?.subscription || {};
     const logoUrl   = sub.logoUrl   || '';
     const pageTitle = sub.pageTitle || 'Подключение';
 
     const logoHtml = logoUrl
-        ? `<img src="${logoUrl}" class="brand-logo" onerror="this.style.display='none'">`
+        ? `<img src="${escAttr(logoUrl)}" class="brand-logo" onerror="this.style.display='none'">`
         : '<i class="ti ti-rocket brand-icon"></i>';
 
     // QR code for subscription link (cached). White modules on PURE black background:
@@ -1791,19 +1832,10 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     // so the QR seamlessly blends into any surface. Cache key carries a style
     // version (`v3`) so legacy QRs with the old `#141414` background are regenerated.
     const QR_CACHE_KEY = `v3:${baseUrl}`;
-    let qrDataUrl = await cache.getQR(QR_CACHE_KEY);
-    if (!qrDataUrl) {
-        try {
-            qrDataUrl = await QRCode.toDataURL(baseUrl, {
-                width: 240,
-                margin: 1,
-                color: { dark: '#ffffff', light: '#000000' },
-            });
-            await cache.setQR(QR_CACHE_KEY, qrDataUrl);
-        } catch (e) {
-            logger.warn(`[Sub] QR generation failed: ${e.message}`);
-        }
-    }
+    const qrDataUrl = await buildQrDataUrl(baseUrl, QR_CACHE_KEY, {
+        width: 240,
+        color: { dark: '#ffffff', light: '#000000' },
+    });
 
     const qrSectionHtml = qrDataUrl
         ? `<div class="section section-center qr-section">
@@ -1813,9 +1845,34 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
            </div>`
         : '';
 
-    function escAttr(s) {
-        return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const amneziaQrConfigs = allConfigs.filter(cfg => cfg.type === 'amneziawg');
+    for (const cfg of amneziaQrConfigs) {
+        const hash = crypto
+            .createHash('sha256')
+            .update(cfg.uri)
+            .digest('hex')
+            .slice(0, 16);
+        cfg.qrDataUrl = await buildQrDataUrl(cfg.uri, `awg-conf-v1:${hash}`, {
+            width: 300,
+            color: { dark: '#000000', light: '#ffffff' },
+        });
     }
+
+    const amneziaQrSectionHtml = amneziaQrConfigs.some(cfg => cfg.qrDataUrl)
+        ? `<div class="section section-center qr-section">
+            <h2><i class="ti ti-shield-lock"></i> AMNEZIAWG QR</h2>
+            <div class="awg-qr-grid">
+                ${amneziaQrConfigs.filter(cfg => cfg.qrDataUrl).map(cfg => `
+                <div class="awg-qr-card">
+                    <div class="awg-qr-title">${escHtml(cfg.location)}</div>
+                    <img src="${cfg.qrDataUrl}" alt="AmneziaWG QR" class="qr-image qr-image-standard">
+                    <button class="copy-btn" onclick="copyText(${JSON.stringify(cfg.uri)}, this)"><i class="ti ti-copy"></i> Копировать .conf</button>
+                </div>
+                `).join('')}
+            </div>
+            <div class="qr-hint">QR содержит конфигурацию .conf для AmneziaWG</div>
+           </div>`
+        : '';
 
     function resolveButtonUrl(rawUrl, subUrl) {
         if (!rawUrl) return null;
@@ -2189,6 +2246,34 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         }
         .qr-image:hover { transform: scale(1.04); }
         .qr-hint { font-size: 12px; color: var(--text-muted); }
+        .qr-image-standard {
+            width: 240px;
+            height: 240px;
+            padding: 8px;
+            background: #fff;
+            border-radius: var(--radius-sm);
+            mix-blend-mode: normal;
+        }
+        .awg-qr-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+        }
+        .awg-qr-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            padding: 12px;
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-sm);
+            background: rgba(255, 255, 255, 0.025);
+        }
+        .awg-qr-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+        }
 
         /* === App buttons grid === */
         .btn-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
@@ -2312,6 +2397,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         </div>
 
         ${qrSectionHtml}
+        ${amneziaQrSectionHtml}
         ${buttonsHtml}
     </div>
 
@@ -2364,6 +2450,15 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     </script>
 </body>
 </html>`;
+}
+
+function generateAmneziawgBundle(user, nodes) {
+    const configs = amneziawgService.buildClientConfigs(user, nodes);
+    if (configs.length === 0) return '# No AmneziaWG servers available\n';
+    if (configs.length === 1) return configs[0].config;
+    return configs
+        .map(item => `# ===== ${item.name} (${item.filename}) =====\n${item.config.trim()}\n`)
+        .join('\n');
 }
 
 // ==================== HWID (subscription fetch) ====================
@@ -2648,6 +2743,11 @@ async function serveSubscription(req, res, ctx) {
         if (nodes.length === 0) {
             return res.status(503).type('text/plain').send('# No servers available');
         }
+        if (nodes.some(n => n.type === 'amneziawg')) {
+            await amneziawgService.ensureUsersPeerMaterial([user], {
+                clientCidr: nodes.find(n => n.type === 'amneziawg')?.amneziawg?.clientCidr,
+            });
+        }
         const html = await generateHTML(user, nodes, cacheToken, baseUrl, settings);
         return res
             .type('text/html')
@@ -2694,6 +2794,12 @@ async function serveSubscription(req, res, ctx) {
     }
 
     logger.debug(`[Sub] Serving ${nodes.length} nodes to user ${user.userId}`);
+
+    if (nodes.some(n => n.type === 'amneziawg')) {
+        await amneziawgService.ensureUsersPeerMaterial([user], {
+            clientCidr: nodes.find(n => n.type === 'amneziawg')?.amneziawg?.clientCidr,
+        });
+    }
 
     const subscriptionData = generateSubscriptionData(user, nodes, format, userAgent, settings?.subscription?.happProviderId || '', settings?.routing);
     await cache.setSubscription(cacheToken, cacheFormat, subscriptionData);
@@ -2776,6 +2882,10 @@ function generateSubscriptionData(user, nodes, format, userAgent, happProviderId
         case 'xray-json':
             content = JSON.stringify(generateXrayJSON(user, nodes, routing), null, 2);
             break;
+        case 'amneziawg':
+        case 'awg':
+            content = generateAmneziawgBundle(user, nodes);
+            break;
         case 'uri':
         case 'raw':
         default: {
@@ -2846,7 +2956,7 @@ function sendCachedSubscription(res, data, format, userAgent, settings, hwidExtr
     
     const headers = {
         'Content-Type': `${contentType}; charset=utf-8`,
-        'Content-Disposition': `attachment; filename="${data.username}"`,
+        'Content-Disposition': `attachment; filename="${data.username}${effectiveFormat === 'amneziawg' || effectiveFormat === 'awg' ? '.conf' : ''}"`,
         'Profile-Title': encodeTitle(data.profileTitle),
         'Profile-Update-Interval': String(settings?.subscription?.updateInterval || 12),
         'Subscription-Userinfo': [

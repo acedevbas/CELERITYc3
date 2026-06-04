@@ -10,7 +10,7 @@ const PROMPTS = [
         name: 'panel_overview',
         description: 'Get a full overview of the panel: nodes, users, traffic, and system health. Use this as a starting point.',
         arguments: [],
-        template: () => `You are managing a Hysteria/Xray VPN panel (C³ CELERITY).
+        template: () => `You are managing a multi-protocol VPN panel (C³ CELERITY: Hysteria/Xray/AmneziaWG).
 
 Start by calling health_check to get system status, then query with resource="stats" for summary statistics, then query with resource="nodes" to see all nodes.
 
@@ -27,7 +27,7 @@ Be concise and highlight anything that requires action.`,
         name: 'audit_nodes',
         description: 'Check all nodes for issues: offline nodes, errors, stale syncs. Suggests fixes.',
         arguments: [],
-        template: () => `You are auditing VPN nodes on a Hysteria/Xray panel.
+        template: () => `You are auditing VPN nodes on a multi-protocol C³ CELERITY panel.
 
 Steps:
 1. Call query with resource="nodes" to get all nodes with their status
@@ -81,11 +81,11 @@ Ask if any action should be taken (extend, reset traffic, enable/disable).`,
 
     {
         name: 'setup_new_node',
-        description: 'Interactive guide to add and configure a new Hysteria or Xray node from scratch.',
+        description: 'Interactive guide to add and configure a new Hysteria, Xray, or AmneziaWG node from scratch.',
         arguments: [
             {
                 name: 'nodeType',
-                description: 'Node type: "hysteria" or "xray" (default: hysteria)',
+                description: 'Node type: "hysteria", "xray", or "amneziawg" (default: hysteria)',
                 required: false,
             },
         ],
@@ -112,7 +112,7 @@ Stream the setup logs and explain each step.
 **Step 4 — Verify**
 After setup, call query with resource="nodes", id=<newNodeId> to check status.
 If status is "online" — success!
-If not — run execute_ssh to check: systemctl status ${nodeType === 'xray' ? 'xray' : 'hysteria-server'}
+If not — run execute_ssh to check: systemctl status ${nodeType === 'xray' ? 'xray' : nodeType === 'amneziawg' ? 'awg-quick@awg0' : 'hysteria-server'}
 
 **Step 5 — Assign users**
 Ask which users or groups should get access to this node.
@@ -137,13 +137,13 @@ Run these diagnostic checks in order using execute_ssh (confirm each command wit
 1. **Get node info** — call query with resource="nodes", id="${nodeId}" to see current status and lastError
 
 2. **Service status**
-   \`systemctl status hysteria-server 2>/dev/null || systemctl status xray 2>/dev/null\`
+   \`systemctl status hysteria-server 2>/dev/null || systemctl status xray 2>/dev/null || systemctl status 'awg-quick@*' 2>/dev/null\`
 
 3. **Recent service logs** (last 50 lines)
-   \`journalctl -u hysteria-server -n 50 --no-pager 2>/dev/null || journalctl -u xray -n 50 --no-pager\`
+   \`journalctl -u hysteria-server -n 50 --no-pager 2>/dev/null || journalctl -u xray -n 50 --no-pager 2>/dev/null || journalctl -u 'awg-quick@*' -n 50 --no-pager\`
 
 4. **Config file existence**
-   \`ls -la /etc/hysteria/ 2>/dev/null || ls -la /usr/local/etc/xray/\`
+   \`ls -la /etc/hysteria/ 2>/dev/null || ls -la /usr/local/etc/xray/ 2>/dev/null || ls -la /etc/wireguard/\`
 
 5. **Port listening check**
    \`ss -tlunp | grep -E '443|8443|9999'\`

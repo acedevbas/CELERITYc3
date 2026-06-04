@@ -498,6 +498,71 @@ function ensureExtraInboundRealityKeys(xray, nodeSetup) {
     }
 }
 
+function parseAmneziawgFormFields(body) {
+    const amneziawg = {};
+    const num = (key, fallback, min = 0, max = 65535) => {
+        const value = parseInt(body[`amneziawg.${key}`], 10);
+        if (!Number.isInteger(value)) return fallback;
+        return Math.min(max, Math.max(min, value));
+    };
+    const csv = (key, fallback) => {
+        if (body[`amneziawg.${key}`] === undefined) return fallback;
+        const values = String(body[`amneziawg.${key}`])
+            .split(',')
+            .map(v => v.trim())
+            .filter(Boolean);
+        return values.length > 0 ? values : fallback;
+    };
+
+    amneziawg.interfaceName = String(body['amneziawg.interfaceName'] || 'awg0')
+        .replace(/[^A-Za-z0-9_=+.-]/g, '')
+        .slice(0, 15) || 'awg0';
+    amneziawg.serverAddress = String(body['amneziawg.serverAddress'] || '10.66.0.1/16').trim();
+    amneziawg.clientCidr = String(body['amneziawg.clientCidr'] || '10.66.0.0/16').trim();
+    amneziawg.endpointHost = String(body['amneziawg.endpointHost'] || '').trim();
+    amneziawg.privateKey = String(body['amneziawg.privateKey'] || '').trim();
+    amneziawg.publicKey = String(body['amneziawg.publicKey'] || '').trim();
+    amneziawg.dns = csv('dns', ['1.1.1.1', '8.8.8.8']);
+    amneziawg.allowedIPs = csv('allowedIPs', ['0.0.0.0/0', '::/0']);
+    amneziawg.mtu = num('mtu', 1420, 576, 9000);
+    amneziawg.persistentKeepalive = num('persistentKeepalive', 25);
+    amneziawg.advancedSecurity = body['amneziawg.advancedSecurity'] !== undefined
+        ? parseBool(body, 'amneziawg.advancedSecurity', true)
+        : true;
+    amneziawg.jc = num('jc', 4);
+    amneziawg.jmin = num('jmin', 40);
+    amneziawg.jmax = num('jmax', 70);
+    ['s1', 's2', 's3', 's4'].forEach(key => {
+        amneziawg[key] = num(key, 0);
+    });
+    ['h1', 'h2', 'h3', 'h4', 'i1', 'i2', 'i3', 'i4', 'i5'].forEach(key => {
+        amneziawg[key] = String(body[`amneziawg.${key}`] || '').trim();
+    });
+    if (!amneziawg.h1) amneziawg.h1 = '1';
+    if (!amneziawg.h2) amneziawg.h2 = '2';
+    if (!amneziawg.h3) amneziawg.h3 = '3';
+    if (!amneziawg.h4) amneziawg.h4 = '4';
+
+    return amneziawg;
+}
+
+function validateAmneziawgFormFields(fields) {
+    const cidrRe = /^(?:\d{1,3}\.){3}\d{1,3}\/(?:[8-9]|[12]\d|30)$/;
+    if (!/^[A-Za-z0-9_=+.-]{1,15}$/.test(fields.interfaceName || '')) {
+        return 'AmneziaWG: interface name must match [A-Za-z0-9_=+.-]{1,15}';
+    }
+    if (!cidrRe.test(fields.serverAddress || '')) {
+        return 'AmneziaWG: server address must be an IPv4 CIDR, for example 10.66.0.1/16';
+    }
+    if (!cidrRe.test(fields.clientCidr || '')) {
+        return 'AmneziaWG: client CIDR must be an IPv4 CIDR, for example 10.66.0.0/16';
+    }
+    if (fields.jmin > fields.jmax) {
+        return 'AmneziaWG: Jmin must be less than or equal to Jmax';
+    }
+    return null;
+}
+
 function parseBool(body, key, defaultValue = false) {
     if (body[key] === undefined) return defaultValue;
     const v = Array.isArray(body[key]) ? body[key][body[key].length - 1] : body[key];
@@ -1184,6 +1249,8 @@ module.exports = {
     parseXrayFormFields,
     parseExtraInbounds,
     validateXrayFormFields,
+    parseAmneziawgFormFields,
+    validateAmneziawgFormFields,
     ensureExtraInboundRealityKeys,
     resolveManualKeyPlaceholder,
     sanitizeXrayForRender,

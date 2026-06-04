@@ -361,7 +361,7 @@
                     <%= typeof t !== 'undefined' ? t('wizard.selfHostTitle') : 'Deploy on this server' %>
                 </div>
                 <div class="choice-desc">
-                    <%= typeof t !== 'undefined' ? t('wizard.selfHostDesc') : 'Install Hysteria 2 and / or Xray on the same server as the panel and let the wizard prepare the starter access bundle.' %>
+                    <%= typeof t !== 'undefined' ? t('wizard.selfHostDesc') : 'Install Hysteria 2, Xray, and/or AmneziaWG on the same server as the panel and let the wizard prepare the starter access bundle.' %>
                 </div>
             </label>
 
@@ -427,6 +427,13 @@
                     <div>
                         <div class="protocol-choice-label">Xray VLESS</div>
                         <div class="protocol-choice-sub"><%= typeof t !== 'undefined' ? t('wizard.xrayChoiceDesc') : 'TCP transport with REALITY camouflage and managed runtime updates through the agent.' %></div>
+                    </div>
+                </label>
+                <label class="protocol-choice">
+                    <input type="checkbox" name="installAmneziawg" id="chk-awg">
+                    <div>
+                        <div class="protocol-choice-label">AmneziaWG 2.0</div>
+                        <div class="protocol-choice-sub"><%= typeof t !== 'undefined' ? t('wizard.amneziawgChoiceDesc') : 'WireGuard-like VPN with AmneziaWG 2.0 obfuscation and native .conf subscriptions.' %></div>
                     </div>
                 </label>
             </div>
@@ -519,6 +526,28 @@
                 <label><%= typeof t !== 'undefined' ? t('nodes.xrayShortIds') : 'Short IDs' %></label>
                 <input type="text" name="xray.realityShortIds" value="" placeholder=", 0123456789abcdef">
                 <small><%= typeof t !== 'undefined' ? t('nodes.xrayShortIdsHint') : 'Comma-separated hex strings (0-16 chars). Empty string is valid.' %></small>
+            </div>
+        </div>
+
+        <div class="onboarding-section collapsible-section" id="awg-settings">
+            <div class="onboarding-section-title">
+                <i class="ti ti-shield-lock"></i>
+                <%= typeof t !== 'undefined' ? t('wizard.amneziawgSettings') : 'AmneziaWG Settings' %>
+            </div>
+            <div class="wizard-grid">
+                <div class="form-group" style="margin:0;">
+                    <label><%= typeof t !== 'undefined' ? t('nodes.port') : 'Port' %> (UDP)</label>
+                    <input type="number" name="awg.port" value="<%= defaults.awgPort %>" min="1" max="65535">
+                    <small><%= typeof t !== 'undefined' ? t('wizard.amneziawgPortHint') : 'AmneziaWG defaults to UDP 51820. Use a unique UDP port when protocols run on one server.' %></small>
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label><%= typeof t !== 'undefined' ? t('nodes.amneziawgClientCidr') : 'Client pool' %></label>
+                    <input type="text" name="awg.clientCidr" value="10.66.0.0/16" placeholder="10.66.0.0/16">
+                </div>
+            </div>
+            <div class="form-group" style="margin-top:16px; margin-bottom:0;">
+                <label><%= typeof t !== 'undefined' ? t('nodes.amneziawgServerAddress') : 'Server address' %></label>
+                <input type="text" name="awg.serverAddress" value="10.66.0.1/16" placeholder="10.66.0.1/16">
             </div>
         </div>
 
@@ -660,16 +689,20 @@
     // ── Step 2: protocol checkboxes toggle sections ───────────────────────────
     const chkHy   = document.getElementById('chk-hy');
     const chkXray = document.getElementById('chk-xray');
+    const chkAwg  = document.getElementById('chk-awg');
     const hySettings   = document.getElementById('hy-settings');
     const xraySettings = document.getElementById('xray-settings');
+    const awgSettings  = document.getElementById('awg-settings');
 
     function updateSections() {
         if (hySettings)   hySettings.style.display   = chkHy   && chkHy.checked   ? 'block' : 'none';
         if (xraySettings) xraySettings.style.display = chkXray && chkXray.checked ? 'block' : 'none';
+        if (awgSettings)  awgSettings.style.display  = chkAwg  && chkAwg.checked  ? 'block' : 'none';
     }
 
     if (chkHy)   chkHy.addEventListener('change', updateSections);
     if (chkXray) chkXray.addEventListener('change', updateSections);
+    if (chkAwg)  chkAwg.addEventListener('change', updateSections);
     updateSections();
 
     window.updateWizardXrayFlow = function () {
@@ -682,7 +715,7 @@
     const selfhostForm = document.getElementById('selfhost-form');
     if (selfhostForm) {
         selfhostForm.addEventListener('submit', function (e) {
-            if (chkHy && chkXray && !chkHy.checked && !chkXray.checked) {
+            if (chkHy && chkXray && chkAwg && !chkHy.checked && !chkXray.checked && !chkAwg.checked) {
                 e.preventDefault();
                 alert('<%= typeof t !== "undefined" ? t("wizard.noProtocolSelected") : "Please select at least one protocol." %>');
             }

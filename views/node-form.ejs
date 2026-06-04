@@ -90,7 +90,7 @@ const aclInlineRulesValue = (node?.aclRules && node.aclRules.length > 0)
     ? node.aclRules.join('\n')
     : aclDefaultInlineRules.join('\n');
 const sniDomainActive = !!String(node?.domain || '').trim();
-const sniVisibleInitially = node?.type !== 'xray' && !sniDomainActive;
+const sniVisibleInitially = (!node || node?.type === 'hysteria') && !sniDomainActive;
 const outboundsAclReason = node?.type === 'hysteria' && node?.acl?.enabled === false ? 'disabled' : '';
 const outboundsAclLocked = outboundsAclReason === 'disabled';
 
@@ -122,6 +122,8 @@ Object.assign(locals, {
 
             <%- include('partials/node-form/xray') %>
 
+            <%- include('partials/node-form/amneziawg') %>
+
             <%- include('partials/node-form/ssh') %>
 
             <%- include('partials/node-form/init-script') %>
@@ -145,8 +147,8 @@ Object.assign(locals, {
                 </div>
             </div>
 
-            <%# ========== 10. Hysteria: Custom Config (hysteria only — hidden for xray and virtual) ========== %>
-            <div class="form-section hysteria-only" id="hysteriaConfigSection" style="<%= (node?.type === 'xray' || node?.type === 'virtual') ? 'display:none' : '' %>">
+            <%# ========== 10. Hysteria: Custom Config (hysteria only) ========== %>
+            <div class="form-section hysteria-only" id="hysteriaConfigSection" style="<%= (!node || node?.type === 'hysteria') ? '' : 'display:none' %>">
                 <h3><%= t('nodes.hysteriaConfig') %></h3>
                 <div class="form-group">
                     <label class="checkbox-label">

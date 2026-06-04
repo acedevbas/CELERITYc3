@@ -100,7 +100,7 @@ const TOOLS = {
     },
 
     manage_node: {
-        description: 'Manage Hysteria/Xray nodes: create, update, delete, sync, auto-setup via SSH, reset status, update config.',
+        description: 'Manage Hysteria/Xray/AmneziaWG/virtual nodes: create, update, delete, sync, auto-setup via SSH, reset status, update config.',
         requiredScope: 'nodes:write',
         inputSchema: {
             type: 'object',
@@ -119,11 +119,12 @@ const TOOLS = {
                         ip: { type: 'string' },
                         domain: { type: 'string' },
                         port: { type: 'number' },
-                        type: { type: 'string', enum: ['hysteria', 'xray'] },
+                        type: { type: 'string', enum: ['hysteria', 'xray', 'amneziawg', 'virtual'] },
                         groups: { type: 'array', items: { type: 'string' } },
                         active: { type: 'boolean' },
                         country: { type: 'string', description: 'Country code, e.g. US, DE, NL' },
                         cascadeRole: { type: 'string', enum: ['standalone', 'portal', 'bridge', 'relay'] },
+                        amneziawg: { type: 'object', description: 'AmneziaWG 2.0 settings' },
                         antiDpi: {
                             type: 'object',
                             description: 'Options for action=apply_anti_dpi',

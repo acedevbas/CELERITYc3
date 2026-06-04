@@ -1,5 +1,5 @@
             <%# ========== 5. Hysteria: Stats API ========== %>
-            <div class="form-section hysteria-only" id="hysteriaStatsSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+            <div class="form-section hysteria-only" id="hysteriaStatsSection" style="<%= (!node || node?.type === 'hysteria') ? '' : 'display:none' %>">
                 <h3><%= t('nodes.sectionStatsApi') %></h3>
                 <small class="section-hint"><%- renderDocsIcon('stats') %><%= t('nodes.sectionStatsHint') %></small>
                 <div class="form-row">
@@ -20,7 +20,7 @@
             </div>
 
             <%# ========== 6. Hysteria: Obfuscation ========== %>
-            <div class="form-section hysteria-only" id="hysteriaObfsSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+            <div class="form-section hysteria-only" id="hysteriaObfsSection" style="<%= (!node || node?.type === 'hysteria') ? '' : 'display:none' %>">
                 <h3><%= t('nodes.sectionObfuscation') %></h3>
                 <small class="section-hint"><%- renderDocsIcon('obfuscation') %><%= t('nodes.sectionObfuscationHint') %></small>
                 <div class="form-row">
@@ -45,7 +45,7 @@
             </div>
 
             <%# ========== 7. Hysteria: Masquerade ========== %>
-            <div class="form-section hysteria-only" id="hysteriaMasqueradeSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+            <div class="form-section hysteria-only" id="hysteriaMasqueradeSection" style="<%= (!node || node?.type === 'hysteria') ? '' : 'display:none' %>">
                 <h3><%= t('nodes.sectionMasquerade') %></h3>
                 <small class="section-hint"><%- renderDocsIcon('masquerade') %><%= t('nodes.sectionMasqueradeHint') %></small>
 
@@ -118,7 +118,7 @@
 
             <%# ========== Advanced optional sections (collapsible) ========== %>
             <details class="hysteria-only node-advanced-details" id="hysteriaAdvancedDetails"
-                     style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                     style="<%= (!node || node?.type === 'hysteria') ? '' : 'display:none' %>">
                 <summary class="node-advanced-summary">
                     <span><i class="ti ti-adjustments-horizontal"></i> <%= t('nodes.advancedSettings') %></span>
                     <i class="ti ti-chevron-down node-advanced-chevron"></i>

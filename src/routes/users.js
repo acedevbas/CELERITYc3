@@ -1,5 +1,5 @@
 /**
- * API для управления пользователями Hysteria + Xray
+ * API для управления пользователями Hysteria + Xray + AmneziaWG
  */
 
 const express = require('express');
@@ -25,20 +25,28 @@ function getSyncService() {
 }
 
 /**
- * Add user to all Xray nodes they belong to (fire-and-forget, non-blocking)
+ * Add user to protocol nodes they belong to (fire-and-forget, non-blocking)
  */
 function xrayAddUser(user) {
-    getSyncService().addUserToAllXrayNodes(user).catch(err => {
+    const syncService = getSyncService();
+    syncService.addUserToAllXrayNodes(user).catch(err => {
         logger.error(`[Users API] Xray addUser error for ${user.userId}: ${err.message}`);
+    });
+    syncService.addUserToAllAmneziawgNodes(user).catch(err => {
+        logger.error(`[Users API] AmneziaWG addUser error for ${user.userId}: ${err.message}`);
     });
 }
 
 /**
- * Remove user from all Xray nodes (fire-and-forget, non-blocking)
+ * Remove user from protocol nodes (fire-and-forget, non-blocking)
  */
 function xrayRemoveUser(user) {
-    getSyncService().removeUserFromAllXrayNodes(user).catch(err => {
+    const syncService = getSyncService();
+    syncService.removeUserFromAllXrayNodes(user).catch(err => {
         logger.error(`[Users API] Xray removeUser error for ${user.userId}: ${err.message}`);
+    });
+    syncService.removeUserFromAllAmneziawgNodes(user).catch(err => {
+        logger.error(`[Users API] AmneziaWG removeUser error for ${user.userId}: ${err.message}`);
     });
 }
 
